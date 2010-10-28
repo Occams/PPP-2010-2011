@@ -1,4 +1,4 @@
-APP = aufgabe1-geruest
+APP = mpi_basdl
 
 .PHONY: all clean call
 
