@@ -4,13 +4,19 @@
 #include <unistd.h>
 #include <mpi.h>
 
+#define true 1
+#define false 0
+
 int np;   /* Anzahl der MPI-Prozessore */
 int self; /* Nummer des eigenen Prozesses (im Bereich 0,...,np-1) */
 double start, end;
 
+char *optarg = 0;
+
 void BCAST_MPI(int*, int, int);
 void BCAST_SEND(int*, int, int);
 void BCAST_TREE(int*, int, int);
+int BCAST_TREE_ConvAdr(int source, int adr, int fromRealToShifted);
 
 /* liefert die Sekunden seit dem 01.01.1970 */
 double seconds() {
@@ -143,5 +149,37 @@ void BCAST_SEND(int* arr, int arr_count, int source) {
 }
 
 void BCAST_TREE(int* arr, int arr_count, int source) {
+	int pos = BCAST_TREE_ConvAdr(source, self, true);	
+	int firstChild = 2*pos+1;
 	
+	if( self != source ) {
+		MPI_Status status;
+		MPI_Recv(arr, arr_count, MPI_INT, BCAST_TREE_ConvAdr(source, (pos - 1)/2, false), 0, MPI_COMM_WORLD, &status);
+	} else {
+		start = seconds();
+	}
+	
+	if(firstChild < np) {
+		MPI_Send(arr, arr_count, MPI_INT, BCAST_TREE_ConvAdr(source, firstChild, false), 0, MPI_COMM_WORLD);
+	}
+	
+	firstChild++;
+	
+	if(firstChild < np) {
+		MPI_Send(arr, arr_count, MPI_INT, BCAST_TREE_ConvAdr(source, firstChild, false), 0, MPI_COMM_WORLD);
+	}
+	
+	MPI_Barrier(MPI_COMM_WORLD);
+	if(self == source) {
+		end = seconds();
+		printf("MPI_BCAST_TREE %i elements: %f, source %i\n", arr_count, end-start, source);
+	}
+}
+
+int BCAST_TREE_ConvAdr(int source, int adr, int fromRealToShifted) {
+	if(fromRealToShifted) {
+		return (adr + np - source) % np;
+	} else {
+		return (adr + source) % np;
+	}
 }
