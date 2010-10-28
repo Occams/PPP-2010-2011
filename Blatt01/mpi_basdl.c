@@ -11,6 +11,8 @@ int np;   /* Anzahl der MPI-Prozessore */
 int self; /* Nummer des eigenen Prozesses (im Bereich 0,...,np-1) */
 double start, end;
 
+char *optarg = 0;
+
 void BCAST_MPI(int*, int, int);
 void BCAST_SEND(int*, int, int);
 void BCAST_TREE(int*, int, int);
