@@ -219,8 +219,8 @@ int main(int argc, char **argv) {
 	
 	switch(type) {
 	case MPI_BROADCAST: time_elapsed = mpi_broadcast(&source,&self,&length,array,&count); break;
-	case SIMULATED_BCAST: simulated_bcast(&source,&self,&length,array,&count,&simulated_blocking,&processors); break;
-	case TREE_DISTRIBUTION: tree_distribution(&source,&self,&length,array,&count,&processors); break;
+	case SIMULATED_BCAST: time_elapsed = simulated_bcast(&source,&self,&length,array,&count,&simulated_blocking,&processors); break;
+	case TREE_DISTRIBUTION: time_elapsed = tree_distribution(&source,&self,&length,array,&count,&processors); break;
 	default:
 		MPI_Finalize();
 		return 1;
