@@ -139,9 +139,20 @@ double tree_distribution(int source, int self, int length, int *array, int proce
 	return elapsed_time;
 }
 
+void printhelp() {
+	printf("Usage:\n");
+	printf("-l 	Size of the integer array to be transmitted (DEFAULT: 2)\n");
+	printf("-b	Use native MPI_Bcast\n");
+	printf("-i BOOL nonblocking	Use a simulated broadcast (DEFAULT: blocking)\n");
+	printf("-t INT branchCount	Use a tree broadcast algorithm with the desired count of branches (DEFAULT: 2)\n");
+	printf("-n INT	Iterate the broadcast n times (DEFAULT: 1)\n");
+	printf("-s INT	The rank of the source process (DEFAULT: 0)\n");
+	printf("-h	This help message\n");
+}
+
 int main(int argc, char **argv) {
 	enum b_type {MPI_BROADCAST, SIMULATED_BCAST, TREE_DISTRIBUTION} type = MPI_BROADCAST;
-	bool simulated_blocking = false;
+	bool simulated_blocking = false, help = false;
 	char option;
 	int i,*array, processors, self, source = 0, length = 2, count = 1, branchCount = 2;
 	double time_elapsed = 0;
@@ -152,7 +163,7 @@ int main(int argc, char **argv) {
 	MPI_Comm_rank(MPI_COMM_WORLD, &self);
 	
 	/* extract cmdline options */
-	while ((option = getopt(argc,argv,"s:l:bi:t:n:")) != -1) {
+	while ((option = getopt(argc,argv,"s:l:bi:t:n:h")) != -1) {
 		
 		switch(option) {
 		case 'b': type = MPI_BROADCAST; break;
@@ -161,10 +172,18 @@ int main(int argc, char **argv) {
 		case 'l': length = atoi(optarg); break;
 		case 'n': count = atoi(optarg); break;
 		case 's': source = atoi(optarg); break;
+		case 'h': help = true; break;
 		default:
 			MPI_Finalize();
 			return 1;
 		}
+	}
+	
+	/* Print help text */
+	if (help) {
+		printhelp();
+		MPI_Finalize();
+		return 0;
 	}
 	
 	/* validate parameter values */
