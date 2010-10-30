@@ -108,6 +108,7 @@ int main(int argc, char *argv[])
     
     
 	if(option_a) {
+		average = 0;
 		for(i = 0; i < f_arg; i++) {
 			double d = BCAST_MPI(arr, arr_count, s_arg);
 			if(self == s_arg) {
@@ -122,6 +123,7 @@ int main(int argc, char *argv[])
 	}
 	
 	if(option_b) {
+		average = 0;
 		for(i = 0; i < f_arg; i++) {
 			double d = BCAST_SEND(arr, arr_count, s_arg);
 			if(self == s_arg) {
@@ -136,6 +138,7 @@ int main(int argc, char *argv[])
 	}
 	
 	if(option_d) {
+		average = 0;
 		for(i = 0; i < f_arg; i++) {
 			double d = BCAST_TREE(arr, arr_count, s_arg);
 			if(self == s_arg) {
@@ -168,7 +171,6 @@ double BCAST_MPI(int* arr, int arr_count, int source) {
     	MPI_Barrier(MPI_COMM_WORLD);
     	end = seconds();
     	return end-start;
-    	printf("MPI_BCAST %i elements: %f, source %i\n", arr_count, end-start, source);
 	} else {
 		MPI_Barrier(MPI_COMM_WORLD);
 		MPI_Bcast(arr, arr_count, MPI_INT, source, MPI_COMM_WORLD);
@@ -181,6 +183,7 @@ double BCAST_SEND(int* arr, int arr_count, int source) {
 	/* Single Send Method */
 	if(self == source) {
 		int i;
+		MPI_Barrier(MPI_COMM_WORLD);
 		start = seconds();
 		for(i = 0; i < np; i++) {
 			if(i != source) {
@@ -190,9 +193,9 @@ double BCAST_SEND(int* arr, int arr_count, int source) {
 		MPI_Barrier(MPI_COMM_WORLD);
 		end = seconds();
 		return end-start;
-    	printf("MPI_Send %i elements: %f, source %i\n", arr_count, end-start, source);
 	} else {
 		MPI_Status status;
+		MPI_Barrier(MPI_COMM_WORLD);
 		MPI_Recv(arr, arr_count, MPI_INT, source, 0, MPI_COMM_WORLD, &status);
 		MPI_Barrier(MPI_COMM_WORLD);
 		return 0;
@@ -224,7 +227,6 @@ double BCAST_TREE(int* arr, int arr_count, int source) {
 	if(self == source) {
 		end = seconds();
 		return end-start;
-		printf("MPI_BCAST_TREE %i elements: %f, source %i\n", arr_count, end-start, source);
 	}
 	return 0;
 }
