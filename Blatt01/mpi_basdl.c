@@ -17,6 +17,7 @@ double BCAST_MPI(int*, int, int);
 double BCAST_SEND(int*, int, int);
 double BCAST_TREE(int*, int, int);
 int BCAST_TREE_ConvAdr(int source, int adr, int fromRealToShifted);
+void printhelp(void);
 
 /* liefert die Sekunden seit dem 01.01.1970 */
 double seconds() {
@@ -60,8 +61,8 @@ int main(int argc, char *argv[])
      * Ein nachgestellter Doppelpunkt signalisiert eine
      * Option mit Argument (in diesem Beispiel bei "-c").
      */
-    option_a = option_b = option_c = option_s = 0;
-    while ((option = getopt(argc,argv,"abc:ds:f:")) != -1) {
+    option_a = option_b = option_c = option_d = option_s = option_f = option_h = 0;
+    while ((option = getopt(argc,argv,"abc:ds:f:h")) != -1) {
         switch(option) {
         case 'a': option_a = 1; break;
         case 'b': option_b = 1; break;
@@ -102,38 +103,58 @@ int main(int argc, char *argv[])
 	 */
 	int arr_count = 1<<c_arg; // Exponential size
     int arr[arr_count];
-    double times[f_arg];
+    double average;
     int i;
     
+    
 	if(option_a) {
+		average = 0;
 		for(i = 0; i < f_arg; i++) {
+			double d = BCAST_MPI(arr, arr_count, s_arg);
 			if(self == s_arg) {
-				times[i] = BCAST_MPI(arr, arr_count, s_arg);
-				printf("MPI_Bcast %f\n", times[i]);
+				average += d;
 			}
 		}
-		
-		
+	
+		if(self == s_arg) {
+			average /= f_arg;
+			printf("MPI_Bcast %f\n", average);
+		}
 	}
 	
 	if(option_b) {
+		average = 0;
 		for(i = 0; i < f_arg; i++) {
+			double d = BCAST_SEND(arr, arr_count, s_arg);
 			if(self == s_arg) {
-				times[i] = BCAST_SEND(arr, arr_count, s_arg);
-				printf("SEND %f\n", times[i]);
+				average += d;
 			}
+		}
+		
+		if(self == s_arg) {
+			average /= f_arg;
+			printf("SEND %f\n", average);
 		}
 	}
 	
 	if(option_d) {
+		average = 0;
 		for(i = 0; i < f_arg; i++) {
+			double d = BCAST_TREE(arr, arr_count, s_arg);
 			if(self == s_arg) {
-				times[i] = BCAST_TREE(arr, arr_count, s_arg);
-				printf("TREE %f\n", times[i]);
+				average += d;
 			}
 		}
+		
+		if(self == s_arg) {
+			average /= f_arg;
+			printf("TREE %f\n", average);
+		}
 	}
-
+	
+	if(option_h) {
+		if(self == s_arg) printhelp();
+	}
 
     /* MPI beenden */
     MPI_Finalize();
@@ -150,7 +171,6 @@ double BCAST_MPI(int* arr, int arr_count, int source) {
     	MPI_Barrier(MPI_COMM_WORLD);
     	end = seconds();
     	return end-start;
-    	printf("MPI_BCAST %i elements: %f, source %i\n", arr_count, end-start, source);
 	} else {
 		MPI_Barrier(MPI_COMM_WORLD);
 		MPI_Bcast(arr, arr_count, MPI_INT, source, MPI_COMM_WORLD);
@@ -163,6 +183,7 @@ double BCAST_SEND(int* arr, int arr_count, int source) {
 	/* Single Send Method */
 	if(self == source) {
 		int i;
+		MPI_Barrier(MPI_COMM_WORLD);
 		start = seconds();
 		for(i = 0; i < np; i++) {
 			if(i != source) {
@@ -172,9 +193,9 @@ double BCAST_SEND(int* arr, int arr_count, int source) {
 		MPI_Barrier(MPI_COMM_WORLD);
 		end = seconds();
 		return end-start;
-    	printf("MPI_Send %i elements: %f, source %i\n", arr_count, end-start, source);
 	} else {
 		MPI_Status status;
+		MPI_Barrier(MPI_COMM_WORLD);
 		MPI_Recv(arr, arr_count, MPI_INT, source, 0, MPI_COMM_WORLD, &status);
 		MPI_Barrier(MPI_COMM_WORLD);
 		return 0;
@@ -206,7 +227,6 @@ double BCAST_TREE(int* arr, int arr_count, int source) {
 	if(self == source) {
 		end = seconds();
 		return end-start;
-		printf("MPI_BCAST_TREE %i elements: %f, source %i\n", arr_count, end-start, source);
 	}
 	return 0;
 }
@@ -217,4 +237,15 @@ int BCAST_TREE_ConvAdr(int source, int adr, int fromRealToShifted) {
 	} else {
 		return (adr + source) % np;
 	}
+}
+
+void printhelp() {
+	printf("USAGE:\n");
+	printf("-c INT	Amount of integers to be broadcasted\n");
+	printf("-a	Broadcast with MPI_Bcast\n");
+	printf("-b	Broadcast with MPI_Send with a star algorithm\n");
+	printf("-d	Broadcast with MPI_Send with a tree algorithm\n");
+	printf("-f INT	Amount of retries to measure average values\n");
+	printf("-s INT	The source process\n");
+	printf("-h	This help message\n");
 }
