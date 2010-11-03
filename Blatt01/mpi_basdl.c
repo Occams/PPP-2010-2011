@@ -104,33 +104,34 @@ int main(int argc, char *argv[])
     int arr[arr_count];
     double times[f_arg];
     int i;
-
+    
 	if(option_a) {
 		for(i = 0; i < f_arg; i++) {
 			if(self == s_arg) {
 				times[i] = BCAST_MPI(arr, arr_count, s_arg);
+				printf("MPI_Bcast %f\n", times[i]);
 			}
 		}
 		
-		printf("MPI_Bcast %f\n", times[0]);
+		
 	}
 	
 	if(option_b) {
 		for(i = 0; i < f_arg; i++) {
 			if(self == s_arg) {
 				times[i] = BCAST_SEND(arr, arr_count, s_arg);
+				printf("SEND %f\n", times[i]);
 			}
 		}
-		printf("SEND %f\n", times[0]);
 	}
 	
 	if(option_d) {
 		for(i = 0; i < f_arg; i++) {
 			if(self == s_arg) {
 				times[i] = BCAST_TREE(arr, arr_count, s_arg);
+				printf("TREE %f\n", times[i]);
 			}
 		}
-		printf("TREE %f\n", times[0]);
 	}
 
 
