@@ -5,6 +5,7 @@
 #include "ppp_pnm.h"
 #include <mpi.h>
 #include "omp.h"
+#include <common.h>
 
 #define GV_SCALE(a, amin, amax, nmin, nmax) \
 		(( \
@@ -35,11 +36,11 @@ void openmp_scale(int *image, int rows, int columns, int maxcolor,
 	int amin, int amax, int nmin, int nmax);
 void openmp_min_max_grayvals(int* image, int rows, int columns, int maxcolor, int* min, int* max);
 
-void mpi_scale(int *image, int rows, int columns, int maxcolor,
-	int amin, int amax, int nmin, int nmax);
-void mpi_min_max_grayvals(int* image, int rows, int columns, int maxcolor, int* min, int* max);
 int mpi_np;
 int mpi_self;
+
+/* Time measurements */
+double t_load, t_scatter, t_reduction, t_scale, t_gather;
 
 /*
  * Implementations
@@ -98,20 +99,39 @@ int main(int argc, char *argv[]) {
 			MPI_Init(&argc, &argv);
 			MPI_Comm_size(MPI_COMM_WORLD, &mpi_np);
 			MPI_Comm_rank(MPI_COMM_WORLD, &mpi_self);
-			int partSize = 0;
+			int i; // Common iteration variable
 			
 			/*
-			 * Scatter...
+			 * Read the image if current is the master...
 			 */
 			if(mpi_self == 0) {
+				t_load = seconds();
 				image = ppp_pnm_read(input, &kind, &rows, &columns, &maxcolor);
-				partSize = (rows*columns)/mpi_np; 
+				t_load = seconds() - t_load;
 			}
 			
 			/*
-			 * Broadcast the size and allocate space...
+			 * Broadcast the size of the image, as well as the maxcolor
 			 */
-			MPI_Bcast(&partSize, 1, MPI_INT, 0, MPI_COMM_WORLD);
+			int image_meta[] = {rows, columns, maxcolor};
+			int counts[mpi_np], displs[mpi_np];
+			MPI_Bcast(image_meta, 3, MPI_INT, 0, MPI_COMM_WORLD);
+			
+			
+			/*
+			 * Prepare parts for scatterv
+			 */
+			int partSize = (image_meta[0]*image_meta[1])/mpi_np;
+			for(i = 0; i < mpi_np; i++) {
+				counts[i] = partSize;
+				displs[i] = partSize*i;
+			}
+			counts[mpi_np-1] = (image_meta[0]*image_meta[1])%partSize;
+			counts[mpi_np-1] = counts[mpi_np-1]==0?partSize:counts[mpi_np-1];
+			
+			/*
+			 * Allocate space for the image on receiving side...
+			 */
 			if(mpi_self != 0) {
 				image = (int*)malloc(partSize*sizeof(int));
 			}
@@ -119,35 +139,48 @@ int main(int argc, char *argv[]) {
 			/*
 			 * Scatter data...
 			 */
-			MPI_Scatter(image, partSize, MPI_INT, image, partSize, MPI_INT, 0, MPI_COMM_WORLD);
+			MPI_Barrier(MPI_COMM_WORLD);
+			t_scatter = seconds();
+			MPI_Scatterv(image, counts, displs, MPI_INT, image, counts[mpi_self], MPI_INT, 0, MPI_COMM_WORLD);
+			MPI_Barrier(MPI_COMM_WORLD);
+			t_scatter = seconds() - t_scatter;
 			
 			/*
 			 * Calculate max...
 			 */
-			int i;
 			int max, min;
 			max = 0;
-			min = 255;
-			for(i = 0; i < partSize; i++) {
+			min = maxcolor;
+			for(i = 0; i < counts[mpi_self]; i++) {
 				max = MAX(max, image[i]);
 				min = MIN(min, image[i]);
 			}
 			
 			int g_max, g_min;
+			MPI_Barrier(MPI_COMM_WORLD);
+			t_reduction = seconds();
 			MPI_Allreduce(&max, &g_max, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
 			MPI_Allreduce(&min, &g_min, 1, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
+			MPI_Barrier(MPI_COMM_WORLD);
+			t_reduction = seconds() - t_reduction;
 
 			/*
 			 * Now, as everybody has the min and max, scale the values locally
 			 */
-			for (i = 0; i < partSize; i++) {
+			t_scale = seconds();
+			for (i = 0; i < counts[mpi_self]; i++) {
 				image[i] = GV_SCALE(image[i], g_min, g_max, nmin, nmax);
 			}
+			t_scale = seconds() - t_scale;
 			
 			/*
 			 * Gather the image again...
 			 */
-			MPI_Gather(image, partSize, MPI_INT, image, partSize, MPI_INT, 0, MPI_COMM_WORLD);
+			MPI_Barrier(MPI_COMM_WORLD);
+			t_gather = seconds();
+			MPI_Gatherv(image, counts[mpi_self], MPI_INT, image, counts, displs, MPI_INT, 0, MPI_COMM_WORLD);
+			MPI_Barrier(MPI_COMM_WORLD);
+			t_gather = seconds() - t_gather;
 			
 			if(mpi_self == 0) {
 				ppp_pnm_write(output, kind, rows, columns, maxcolor, image);
@@ -155,6 +188,11 @@ int main(int argc, char *argv[]) {
 			
 			/* MPI beenden */
 			MPI_Finalize();
+			
+			if(mpi_self == 0) {
+				printf("Load: %f\nScatter: %f\nReduction: %f\nScale: %f\nGather: %f\n",
+					t_load, t_scatter, t_reduction, t_scale, t_gather);
+			}
 		break;}
 		
 		default:
@@ -237,48 +275,6 @@ void openmp_min_max_grayvals(int* image, int rows, int columns, int maxcolor, in
 				amin = MIN(amin,color);
 				amax = MAX(amax,color);
 			}
-		}
-	}
-	
-	*min = amin;
-	*max = amax;
-}
-
-
-
-/*
- * MPI implementations...
- */
-void mpi_scale(int *image, int rows, int columns, int maxcolor,
-	int amin, int amax, int nmin, int nmax) {
-	
-	int x, y;
-	for (y=0; y<rows; y++) {
-		for (x=0; x<columns; x++) {
-			image[y*columns+x] = GV_SCALE(image[y*columns+x], amin, amax, nmin, nmax);
-		}
-	}
-}
-
-void mpi_min_max_grayvals(int* image, int rows, int columns, int maxcolor, int* min, int* max) {
-	int amin, amax;
-	
-	amin = maxcolor;
-	amax = 0;
-	
-	int x, y;
-	for (y=0; y<rows; y++) {
-		for (x=0; x<columns; x++) {
-			int color = image[y*columns+x];
-			amin = MIN(amin,color);
-			amax = MAX(amax,color);
-		}
-		
-		/*
-		 * If the minimum value is 0 and the maximum color is maxcolor return...
-		 */
-		if(amin == 0 && amax == maxcolor) {
-			y = rows;
 		}
 	}
 	
