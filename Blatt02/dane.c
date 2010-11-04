@@ -35,12 +35,12 @@ int main(int argc, char **argv) {
      * maximal gray value used in the image) in 'maxcolor' and return
      * the image row-wise with one int per pixel.
      */
+    image = ppp_pnm_read(argv[1], &kind, &rows, &columns, &maxcolor);
 	printf("Rows: %i\n", rows);
 	printf("Columns: %i\n", columns);
 	printf("Maxcolor: %i\n", maxcolor);
 	printf("Kind: %i\n", kind);
 	printf("Path: %s", argv[1]);
-    image = ppp_pnm_read(argv[1], &kind, &rows, &columns, &maxcolor);
 	ppp_pnm_write(path, kind, rows, columns, maxcolor, image);
 	
 	/* init MPI */
