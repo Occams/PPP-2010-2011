@@ -298,13 +298,15 @@ void openmp_min_max_grayvals(int* image, int rows, int columns, int maxcolor, in
 		maxs[i] = 0;
 	}
 	
-	int x, y;
-	#pragma omp parallel for private(x)
+	int x, y, threadnum;
+	#pragma omp parallel for private(x, threadnum)
 	for (y=0; y<rows; y++) {
+		threadnum = omp_get_thread_num();
+		
 		for (x=0; x<columns; x++) {
 			int color = image[y*columns+x];
-			mins[omp_get_thread_num()] = MIN(mins[omp_get_thread_num()], color);
-			mins[omp_get_thread_num()] = MAX(maxs[omp_get_thread_num()], color);
+			mins[threadnum] = MIN(mins[threadnum], color);
+			mins[threadnum] = MAX(maxs[threadnum], color);
 		}
 	}
 	
