@@ -27,8 +27,10 @@ typedef enum {
 void sequential_determineMinMax();
 void sequential_rescale();
 void openmp_determineMinMax();
-void openmp_determineMinMax_reduction();
 void openmp_rescale();
+void mpi_determineMinMax();
+void mpi_rescale();
+int * mpi_read_part(enum pnm_kind kind, int rows, int columns, int *offset, int *length);
 
 int main(int argc, char **argv) {
 	Method method = 0;
@@ -75,13 +77,13 @@ int main(int argc, char **argv) {
 	switch(method) {
 	case SEQUENTIAL: sequential_determineMinMax(); sequential_rescale(); break;
 	case OPENMP: openmp_determineMinMax(); openmp_rescale(); break;
-	case COMBINED: break;
+	case COMBINED: mpi_determineMinMax(); mpi_rescale(); break;
 	default: printf("Method not available! Will exit"); return 1;
 	}
 	
-	// if (ppp_pnm_write(output_path, kind, rows, cols, maxcolor, image) != 0) {
-	// printf("Write error\n");
-	// }
+	if (ppp_pnm_write(output_path, kind, rows, cols, maxcolor, image) != 0) {
+		printf("Write error\n");
+	}
 	
 	//printf("A-Min: %i\n", a_min);
 	//printf("A-Max: %i\n", a_max);
@@ -102,6 +104,10 @@ void sequential_determineMinMax() {
 			pixel = image[y*cols+x];
 			a_min = MIN(pixel, a_min);
 			a_max = MAX(pixel, a_max);
+		}
+		
+		if (a_min == 0 && a_max == maxcolor) {
+			break;
 		}
 	}
 	
@@ -165,6 +171,20 @@ void openmp_rescale() {
 	}
 	
 	printf("OPENMP rescale: %f\n", seconds() - start);
+}
+
+void mpi_determineMinMax() {
+	
+}
+
+void mpi_rescale() {
+
+}
+
+int * mpi_read_part(enum pnm_kind kind, int rows, int columns, int *offset, int *length) {
+	*offset = (rows / mpi_processors) * mpi_self * columns;
+	*length = (rows / mpi_processors) * mpi_self * columns;
+	return (int *) malloc(0);
 }
 
 void printhelp() {
