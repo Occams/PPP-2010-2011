@@ -12,8 +12,6 @@
 			( (a) - (amin) ) * ( (nmax) - (nmin) ) + ( (amax) - (amin) ) / 2 \
 		) \
 		/ ( (amax) - (amin) ) + (nmin))
-#define MIN(X,Y) ((X) < (Y) ? (X) : (Y))
-#define MAX(X,Y) ((X) < (Y) ? (Y) : (X))
 
 		
 /*
@@ -28,6 +26,8 @@ typedef enum {
 /*
  * Declarations
  */
+void help(void);
+ 
 void sequential_scale(int *image, int rows, int columns, int maxcolor,
 	int amin, int amax, int nmin, int nmax);
 void sequential_min_max_grayvals(int* image, int rows, int columns, int maxcolor, int* min, int* max);
@@ -63,6 +63,7 @@ int main(int argc, char *argv[]) {
         case 'a': nmin = atoi(optarg); break;
         case 'b': nmax = atoi(optarg); break;
         case 'c': conv = atoi(optarg); break;
+        case 'h': help(); return 0; break;
         default:
             return 1;
         }
@@ -280,4 +281,14 @@ void openmp_min_max_grayvals(int* image, int rows, int columns, int maxcolor, in
 	
 	*min = amin;
 	*max = amax;
+}
+
+
+void help() {
+	printf("Usage:\n");
+	printf("-c	Convert Type: 0 Sequential, 1 Openmp, 2 MPI \n");
+	printf("-a	Integer for nmin\n");
+	printf("-b	Integer for nmax\n");
+	printf("-i	Path to input file\n");
+	printf("-o	Path to output file\n");
 }
