@@ -13,5 +13,6 @@
 #endif
 
 double seconds(void);
+int *allocints(int size);
 
 #endif
