@@ -13,13 +13,10 @@
 	/ \
 	((a_max) - (a_min)) ) \
 	+ (n_min))
-	
-#define MIN(a,b) ((a) < (b) ? (a) : (b))
-#define MAX(a,b) ((a) > (b) ? (a) : (b))
 
 int mpi_self, mpi_processors, a_min = 0, a_max = 0,n_max = (2<<7) - 1, n_min = 0,
-	*image, maxcolor, rows, cols;
- enum pnm_kind kind;
+*image, maxcolor, rows, cols;
+enum pnm_kind kind;
 
 typedef enum {
 	SEQUENTIAL,
@@ -30,6 +27,7 @@ typedef enum {
 void sequential_determineMinMax();
 void sequential_rescale();
 void openmp_determineMinMax();
+void openmp_determineMinMax_reduction();
 void openmp_rescale();
 
 int main(int argc, char **argv) {
@@ -42,29 +40,31 @@ int main(int argc, char **argv) {
 	MPI_Comm_size(MPI_COMM_WORLD, &mpi_processors);
 	MPI_Comm_rank(MPI_COMM_WORLD, &mpi_self);
 	
-	/* Read cmdline params */
-    while ((option = getopt(argc,argv,"m:x:y:i:o:")) != -1) {
+	omp_set_dynamic(false);
 	
-        switch(option) {
-        case 'm': method = atoi(optarg); break;
-        case 'x': n_min = atoi(optarg); break;
-        case 'y': n_max = atoi(optarg); break;
-        case 'i': input_path = optarg; break;
-        case 'o': output_path = optarg; break;
-        default:
-            return 1;
-        }
-    }
+	/* Read cmdline params */
+	while ((option = getopt(argc,argv,"m:x:y:i:o:")) != -1) {
+		
+		switch(option) {
+		case 'm': method = atoi(optarg); break;
+		case 'x': n_min = atoi(optarg); break;
+		case 'y': n_max = atoi(optarg); break;
+		case 'i': input_path = optarg; break;
+		case 'o': output_path = optarg; break;
+		default:
+			return 1;
+		}
+	}
 	
 	image = ppp_pnm_read(input_path, &kind, &rows, &cols, &maxcolor);
 	
-	printf("Method: %i\n", method);
-	printf("N-Min: %i\n", n_min);
-	printf("N-Max: %i\n", n_max);
-	printf("Input-Path: %s\n", input_path);
-	printf("Output-Path: %s\n", output_path);
-	printf("Rows: %i\n", rows);
-	printf("Cols: %i\n", cols);
+	// printf("Method: %i\n", method);
+	// printf("N-Min: %i\n", n_min);
+	// printf("N-Max: %i\n", n_max);
+	// printf("Input-Path: %s\n", input_path);
+	// printf("Output-Path: %s\n", output_path);
+	// printf("Rows: %i\n", rows);
+	// printf("Cols: %i\n", cols);
 	
 	/* Validate params */
 	if (image == NULL || n_min > n_max || n_min < 0 || n_max >= 2<<7) {
@@ -73,18 +73,18 @@ int main(int argc, char **argv) {
 	}
 	
 	switch(method) {
-		case SEQUENTIAL: sequential_determineMinMax(); sequential_rescale(); break;
-		case OPENMP: openmp_determineMinMax(); openmp_rescale(); break;
-		case COMBINED: break;
-		default: printf("Method not available! Will exit"); return 1;
+	case SEQUENTIAL: sequential_determineMinMax(); sequential_rescale(); break;
+	case OPENMP: openmp_determineMinMax(); openmp_rescale(); break;
+	case COMBINED: break;
+	default: printf("Method not available! Will exit"); return 1;
 	}
 	
-	if (ppp_pnm_write(output_path, kind, rows, cols, maxcolor, image) != 0) {
-		printf("Write error\n");
-	}
+	// if (ppp_pnm_write(output_path, kind, rows, cols, maxcolor, image) != 0) {
+	// printf("Write error\n");
+	// }
 	
-	printf("A-Min: %i\n", a_min);
-	printf("A-Max: %i\n", a_max);
+	//printf("A-Min: %i\n", a_min);
+	//printf("A-Max: %i\n", a_max);
 	
 	free(image);
 	
@@ -97,10 +97,10 @@ void sequential_determineMinMax() {
 	a_min = maxcolor;
 	
 	for (y=0; y<rows; y++) {
-	
+		
 		for (x=0; x<cols; x++) {
 			pixel = image[y*cols+x];
-		    a_min = MIN(pixel, a_min);
+			a_min = MIN(pixel, a_min);
 			a_max = MAX(pixel, a_max);
 		}
 	}
@@ -109,11 +109,11 @@ void sequential_determineMinMax() {
 }
 
 void sequential_rescale() {
-	int idx,x = 0, y = 0;
+	int idx, x = 0, y = 0;
 	double start = seconds();
 	
 	for (y=0; y<rows; y++) {
-	
+		
 		for (x=0; x<cols; x++) {
 			idx = y*cols+x;
 			image[idx] = SCALE_GREYMAP(image[idx], a_min, a_max, n_min, n_max);
@@ -124,44 +124,34 @@ void sequential_rescale() {
 }
 
 void openmp_determineMinMax() {
-	int pixel, x = 0, y = 0, thread_num = 0;
-	double start = seconds();
-	int* minValues = malloc(sizeof(int) * omp_get_max_threads());
-	int* maxValues = malloc(sizeof(int) * omp_get_max_threads());
-	a_min = maxcolor;
+	int x = 0, y = 0;
+	double start = seconds(), elapsed;
 	
-	for (x = 0; x < omp_get_max_threads(); x++) {
-		minValues[x] = maxcolor;
-		maxValues[x] = 0;
-	}
+	a_min = maxcolor;
 	
 	#pragma omp parallel for private(x)
 	for (y=0; y<rows; y++) {
-	thread_num = omp_get_num_threads();
-	
-	int num = omp_get_thread_num();
-	
+		int pixel, a_min_t = maxcolor, a_max_t = 0;
+		
 		for (x=0; x<cols; x++) {
 			pixel = image[y*cols+x];
-			minValues[num] = MIN(pixel, minValues[num]);
-			maxValues[num] = MAX(pixel, maxValues[num]);
+			a_min_t = MIN(pixel, a_min_t);
+			a_max_t = MAX(pixel, a_max_t );
+		}
+		
+		#pragma omp critical
+		{
+			a_min = MIN(a_min,a_min_t);
+			a_max = MAX(a_max,a_max_t);
 		}
 	}
 	
-	printf("OPEMNP Threads: %i\n", thread_num);
-	
-	for (x = 0; x < thread_num; x++) {
-		a_min = MIN(a_min, minValues[x]);
-		a_max = MAX(a_max,maxValues[x]);
-	}
-	
-	free(minValues);
-	free(maxValues);
-	printf("OPEMNP min/max: %f\n", seconds() - start);
+	elapsed = seconds() - start;
+	printf("OPENMP min/max: %f\n", elapsed);
 }
 
 void openmp_rescale() {
-	int idx,x = 0, y = 0;
+	int x = 0, y = 0;
 	double start = seconds();
 	
 	#pragma omp parallel for private(x)
@@ -169,7 +159,7 @@ void openmp_rescale() {
 		
 		#pragma omp parallel for
 		for (x=0; x<cols; x++) {
-			idx = y*cols+x;
+			int idx = y*cols+x;
 			image[idx] = SCALE_GREYMAP(image[idx], a_min, a_max, n_min, n_max);
 		}
 	}
