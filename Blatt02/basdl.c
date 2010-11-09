@@ -80,20 +80,49 @@ int main(int argc, char *argv[]) {
 	switch(conv) {
 		case CONV_SEQUENTIAL:
 			printf("Convert Sequential...\n");
+			t_scatter = t_gather = 0.0;
+			
+			t_load = seconds();
 			image = ppp_pnm_read(input, &kind, &rows, &columns, &maxcolor);
+			t_load = seconds() - t_load;
+			
+			t_reduction = seconds();
 			sequential_min_max_grayvals(image, rows, columns, maxcolor, &amin, &amax);
+			t_reduction = seconds() - t_reduction;
+			
+			t_scale = seconds();
 			sequential_scale(image, rows, columns, maxcolor,
 				amin, amax, nmin, nmax);
+			t_scale = seconds() - t_scale;
+			
 			ppp_pnm_write(output, kind, rows, columns, maxcolor, image);
+			
+			printf("Load:\t\t%f\nMin/Max:\t%f\nScale:\t\t%f\n",
+				t_load, t_reduction, t_scale);
 		break;
 		
 		case CONV_OPENMP:
 			printf("Convert Openmp...\n");
+			t_scatter = t_gather = 0.0;
+			
+			t_load = seconds();
 			image = ppp_pnm_read(input, &kind, &rows, &columns, &maxcolor);
+			t_load = seconds() - t_load;
+			
+			t_reduction = seconds();
 			openmp_min_max_grayvals(image, rows, columns, maxcolor, &amin, &amax);
+			t_reduction = seconds() - t_reduction;
+			
+			
+			t_scale = seconds();
 			openmp_scale(image, rows, columns, maxcolor,
 				amin, amax, nmin, nmax);
+			t_scale = seconds() - t_scale;
+			
 			ppp_pnm_write(output, kind, rows, columns, maxcolor, image);
+			
+			printf("Load:\t\t%f\nMin/Max:\t%f\nScale:\t\t%f\n",
+				t_load, t_reduction, t_scale);
 		break;
 		
 		case CONV_MPI: {
@@ -185,20 +214,19 @@ int main(int argc, char *argv[]) {
 			
 			if(mpi_self == 0) {
 				ppp_pnm_write(output, kind, rows, columns, maxcolor, image);
+				printf("Load:\t\t%f\nScatter:\t%f\nReduction:\t%f\nScale:\t\t%f\nGather:\t\t%f\n",
+					t_load, t_scatter, t_reduction, t_scale, t_gather);
 			}
 			
 			/* MPI beenden */
 			MPI_Finalize();
-			
-			if(mpi_self == 0) {
-				printf("Load: %f\nScatter: %f\nReduction: %f\nScale: %f\nGather: %f\n",
-					t_load, t_scatter, t_reduction, t_scale, t_gather);
-			}
 		break;}
 		
 		default:
 		break;
 	}
+	
+
 	
 	if(image != NULL) {
 	    free(image);
@@ -261,26 +289,32 @@ void openmp_scale(int *image, int rows, int columns, int maxcolor,
 }
 
 void openmp_min_max_grayvals(int* image, int rows, int columns, int maxcolor, int* min, int* max) {
-	int amin, amax;
+	int mins[omp_get_max_threads()];
+	int maxs[omp_get_max_threads()];
 	
-	amin = maxcolor;
-	amax = 0;
+	int i;
+	for(i = 0; i < omp_get_max_threads(); i++) {
+		mins[i] = maxcolor;
+		maxs[i] = 0;
+	}
 	
 	int x, y;
-#pragma omp parallel for private(x)
+	#pragma omp parallel for private(x)
 	for (y=0; y<rows; y++) {
 		for (x=0; x<columns; x++) {
 			int color = image[y*columns+x];
-			#pragma omp critical
-			{
-				amin = MIN(amin,color);
-				amax = MAX(amax,color);
-			}
+			mins[omp_get_thread_num()] = MIN(mins[omp_get_thread_num()], color);
+			mins[omp_get_thread_num()] = MAX(maxs[omp_get_thread_num()], color);
 		}
 	}
 	
-	*min = amin;
-	*max = amax;
+	for(i = 0; i < omp_get_max_threads(); i++) {
+		mins[0] = MIN(mins[i], mins[0]);
+		maxs[0] = MAX(maxs[i], maxs[0]);
+	}
+	
+	*min = mins[0];
+	*max = maxs[0];
 }
 
 
