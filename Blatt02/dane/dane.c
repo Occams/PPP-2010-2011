@@ -1,4 +1,4 @@
-#include <stdio.h>
+﻿#include <stdio.h>
 #include <stdlib.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -13,9 +13,11 @@
 	/ \
 	((a_max) - (a_min)) ) \
 	+ (n_min))
+	
+#define MASTER 0
 
 int mpi_self, mpi_processors, a_min = 0, a_max = 0,n_max = (2<<7) - 1, n_min = 0,
-*image, maxcolor, rows, cols;
+*image, *image_part, image_part_length, maxcolor, rows, cols;
 enum pnm_kind kind;
 
 typedef enum {
@@ -24,20 +26,16 @@ typedef enum {
 	COMBINED
 } Method;
 
-void execute(double load(char *input_path), double determineMinMax(), double rescale(),
-	void print(double load, double min_max, double scale), char * input_path, int count);
+void execute(double (*load) (char *input_path), double (*determineMinMax)(int *image), double (*rescale)(), char * input_path, int count);
 double sequential_determineMinMax();
 double sequential_rescale();
-double sequential_load(char* input_path);
-double openmp_determineMinMax();
+double sequential_load(char *input_path);
+double openmp_determineMinMax(int *image);
 double openmp_rescale();
-double mpi_determineMinMax();
-double mpi_rescale();
-double mpi_load(char* input_path);
-void sequential_print(double load, double min_max, double rescale);
-void openmp_print(double load, double min_max, double rescale);
-void mpi_print(double load, double scatter, double reduction, double min_max, double rescale, double gather);
+void mpi(char *input_path, int count);
+void print(double load, double scatter, double reduction, double min_max, double rescale, double gather);
 int * mpi_read_part(enum pnm_kind kind, int rows, int columns, int *offset, int *length);
+void printhelp();
 
 int main(int argc, char **argv) {
 	Method method = 0;
@@ -60,6 +58,7 @@ int main(int argc, char **argv) {
 		case 'o': output_path = optarg; break;
 		case 'n': count = atoi(optarg); break;
 		default:
+			MPI_Finalize();
 			return 1;
 		}
 	}
@@ -75,50 +74,70 @@ int main(int argc, char **argv) {
 	/* Validate params */
 	if (n_min > n_max || n_min < 0 || n_max >= 2<<7 || count < 1) {
 		printf("Invalid params\n");
+		MPI_Finalize();
 		return 1;
 	}
 	
 	switch(method) {
 	case SEQUENTIAL: 
-		execute(sequential_load, sequential_determineMinMax, sequential_rescale, sequential_print, input_path,count);
+		if (mpi_self == MASTER)
+		printf(">>SEQUENTIAL\n");
+		execute(sequential_load, sequential_determineMinMax, sequential_rescale, input_path, count);
 		break;
 	case OPENMP:
-		image = ppp_pnm_read(input_path, &kind, &rows, &cols, &maxcolor);
-		openmp_determineMinMax();
-		openmp_rescale();
+		if (mpi_self == MASTER)
+		printf(">>OPENMP\n");
+		execute(sequential_load, openmp_determineMinMax, openmp_rescale, input_path, count);
 		break;
-	case COMBINED: mpi_determineMinMax(); mpi_rescale(); break;
-	default: printf("Method not available! Will exit"); return 1;
+	case COMBINED: 
+		if (mpi_self == MASTER)
+		printf(">>MPI\n");
+		mpi(input_path, count); break;
+	default: 
+		printf("Method not available! Will exit");
+		MPI_Finalize();
+		return 1;
 	}
 	
-	if (ppp_pnm_write(output_path, kind, rows, cols, maxcolor, image) != 0) {
-		printf("Write error\n");
-	}
+	//if (ppp_pnm_write(output_path, kind, rows, cols, maxcolor, image) != 0) {
+	//	printf("Write error\n");
+	//}
 	
 	//printf("A-Min: %i\n", a_min);
 	//printf("A-Max: %i\n", a_max);
 	
+	/* MPI beenden */
+	MPI_Finalize();
 	return 0;
 }
 
-void execute(double load(char *input_path), double determineMinMax(), double rescale(),
-	void print(double load, double min_max, double scale), char* input_path, int count) {
-	double load_s = 0, min_max_s = 0, scale_s = 0; 
+void execute(double (*load) (char *input_path), double (*determineMinMax)(int *image), double (*rescale)(), char * input_path, int count) {
+	double load_s = 0, min_max_s = 0, rescale_s = 0; 
 	int i;
 	
 	for (i = 0;  i < count; i++) {
 		load_s += load(input_path);
-		min_max_s += determineMinMax();
-		scale_s += rescale();
+		min_max_s += determineMinMax(image);
+		rescale_s += rescale();
+		
+		if (i +1 < count) {
 		free(image);
+		}
 	}
 	
-	print(load_s/count, min_max_s / count, scale_s / count);
+	if (mpi_self == MASTER)
+	print(load_s/count, 0, 0, min_max_s / count, rescale_s / count, 0);
 }
 
 double sequential_load(char* input_path) {
 	double start = seconds();
 	image = ppp_pnm_read(input_path, &kind, &rows, &cols, &maxcolor);
+	
+	if (image == NULL) {
+		MPI_Finalize();
+		exit(1);
+	}
+		
 	return seconds() - start;
 }
 
@@ -159,7 +178,7 @@ double sequential_rescale() {
 	return seconds() - start;
 }
 
-double openmp_determineMinMax() {
+double openmp_determineMinMax(int* image) {
 	int x = 0, y = 0;
 	double start = seconds();
 	
@@ -204,47 +223,92 @@ double openmp_rescale() {
 	return seconds() - start;
 }
 
-double mpi_determineMinMax() {
-	return 0;
+void mpi(char *input_path, int count) {
+	int i,x,max_min_buf_s[2], max_min_buf_r[2];
+	double load_s = 0, min_max_s = 0, rescale_s = 0,scatter_s = 0, reduction_s = 0, gather_s = 0, start; 
+	
+	for (i = 0; i < count; i++) {
+	
+		/* Read one's part of the image */
+		start = seconds();
+		image_part = ppp_pnm_read_part(input_path, &kind, &rows, &cols, &maxcolor, mpi_read_part);
+		load_s += seconds() - start;
+		
+		if (image_part == NULL) {
+			MPI_Finalize();
+			exit(1);
+		}
+			
+		//printf("Processors %i owns a part of %i * 4 bytes\n", mpi_self, image_part_length);
+		//printf("Total %i * 4 bytes\n",rows*cols);
+		
+		/* Determine Min/Max */
+		double start = seconds();
+		a_min = maxcolor;
+	
+		for (x=0; x < image_part_length; x++) {
+			a_min = MIN(image_part[x], a_min);
+			a_max = MAX(image_part[x], a_max);
+		}
+		
+		min_max_s += seconds() - start;
+		
+		/* Allreduce Min/Max */
+		max_min_buf_s[0] = a_max;
+		max_min_buf_s[1] = -1 * a_min;
+		MPI_Allreduce(max_min_buf_s, max_min_buf_r, 2, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
+		printf("Allreduce Processor %i: Min %i Max %i\n",mpi_self, -1*max_min_buf_r[1],max_min_buf_r[0]);
+		
+		
+		if (i +1 < count) {
+			free(image);
+		}
+	
+		free(image_part);
+	}
+	
+	image = image_part;
+	
+	if (mpi_self == MASTER)
+	print(load_s/count, scatter_s/count, reduction_s/count, min_max_s/count, rescale_s/count, gather_s/count);
 }
 
-double mpi_rescale() {
-	return 0;
-}
-
-void sequential_print(double load, double min_max, double rescale) {
-	printf(">>SEQUENTIAL\n");
+void print(double load, double scatter, double reduction, double min_max, double rescale, double gather) {
 	printf("Loading: %f\n", load);
 	printf("Min/Max: %f\n", min_max);
 	printf("Rescale: %f\n", rescale);
+	printf("Scatter: %f\n", scatter);
+	printf("Reduction: %f\n", reduction);
+	printf("Gather: %f\n", gather);
+	printf(">TOTAL: %f\n", gather+load+min_max+rescale+scatter+reduction);
 }
 
-void omp_print(double load, double min_max, double rescale) {
-	printf(">>OPENMP\n");
-	printf("Loading: %f\n", load);
-	printf("Min/Max: %f\n", min_max);
-	printf("Rescale: %f\n", rescale);
-}
-void mpi_print(double load, double scatter, double reduction, double min_max, double rescale, double gather) {
-	printf(">>MPI\n");
-	printf("Loading: %f\n", load);
-	printf("Min/Max: %f\n", min_max);
-	printf("Rescale: %f\n", rescale);
-}
-
-int * mpi_read_part(enum pnm_kind kind, int rows, int columns, int *offset, int *length) {
-	*offset = (rows / mpi_processors) * mpi_self * columns;
-	*length = (rows / mpi_processors) * mpi_self * columns;
-	return (int *) malloc(0);
+int *mpi_read_part(enum pnm_kind kind, int rows, int columns, int *offset, int *length) {
+	
+	if (kind != PNM_KIND_PGM) {
+		return NULL;
+	}
+	
+	if (mpi_self < (rows*columns) % mpi_processors) {
+		*length = (rows*columns) / mpi_processors + 1;
+		*offset = *length * mpi_self;
+    } else {
+		*length = (rows*columns) / mpi_processors;
+		*offset = *length * mpi_self  +  (rows*columns) % mpi_processors;
+    }
+	
+	image_part_length = *length;
+	
+    return (int *) malloc(image_part_length * sizeof(int));
 }
 
 void printhelp() {
-	printf("Usage:\n");
-	printf("-l 	Size of the integer array to be transmitted (DEFAULT: 2)\n");
-	printf("-b	Use native MPI_Bcast\n");
-	printf("-i BOOL nonblocking	Use a simulated broadcast (DEFAULT: blocking)\n");
-	printf("-t INT branchCount	Use a tree broadcast algorithm with the desired count of branches (DEFAULT: 2)\n");
-	printf("-n INT	Iterate the broadcast n times (DEFAULT: 1)\n");
-	printf("-s INT	The rank of the source process (DEFAULT: 0)\n");
-	printf("-h	This help message\n");
+	if (mpi_self == MASTER) {
+		printf("Usage:\n");
+		printf("-i 	Input path (DEFAULT: input.pgm)\n");
+		printf("-o	Output path (DEFAULT: output.pgm)\n");
+		printf("-m	Method: 0=SEQUENTIAL | 1=OPENMP | 2=MPI (DEFAULT: 0)\n");
+		printf("-x	N_MIN (DEFAULT: 0)\n");
+		printf("-y	N_MAX (DEFAULT: 255)\n");
+	}
 }
