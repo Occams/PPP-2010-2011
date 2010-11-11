@@ -144,10 +144,10 @@ double sequential_determineMinMax() {
 	double start = seconds();
 	a_min = maxcolor;
 	
-	for (x=0; x<rows; x++) {
+	for (y=0; y<rows; y++) {
 		
-		for (y=0; y<cols; y++) {
-			pixel = image[x*cols+y];
+		for (x=0; x<cols; x++) {
+			pixel = image[y*cols+x];
 			a_min = MIN(pixel, a_min);
 			a_max = MAX(pixel, a_max);
 		}
@@ -183,11 +183,11 @@ double openmp_determineMinMax() {
 	a_min = maxcolor;
 	
 	#pragma omp parallel for private(x)
-	for (x=0; x<rows; x++) {
+	for (y=0; y<rows; y++) {
 		int pixel, a_min_t = maxcolor, a_max_t = 0;
 		
-		for (y=0; y<cols; y++) {
-			pixel = image[x*cols+y];
+		for (x=0; x<cols; x++) {
+			pixel = image[y*cols+x];
 			a_min_t = MIN(pixel, a_min_t);
 			a_max_t = MAX(pixel, a_max_t );
 		}
@@ -195,10 +195,6 @@ double openmp_determineMinMax() {
 		#pragma omp critical
 		{
 			a_min = MIN(a_min,a_min_t);
-		}
-		
-		#pragma omp critical
-		{
 			a_max = MAX(a_max,a_max_t);
 		}
 	}
@@ -212,11 +208,11 @@ double openmp_rescale() {
 	double start = seconds();
 	
 	#pragma omp parallel for private(x)
-	for (x=0; x<rows_l; x++) {
+	for (y=0; y<rows_l; y++) {
 		
 		#pragma omp parallel for
-		for (y=0; y<cols_l; y++) {
-			int idx = x*cols_l+y;
+		for (x=0; x<cols_l; x++) {
+			int idx = y*cols_l+x;
 			image[idx] = SCALE_GREYMAP(image[idx], a_min_l, a_max_l, n_min_l, n_max_l);
 		}
 	}
@@ -335,7 +331,7 @@ void print(double load, double reduction, double min_max, double rescale, double
 	m_printf("Rescale: %f\n", rescale);
 	m_printf("Reduction: %f\n", reduction);
 	m_printf("Gather: %f\n", gather);
-	m_printf(">TOTAL: %f\n", gather+load+min_max+rescale+reduction);
+	m_printf("->TOTAL: %f\n", gather+load+min_max+rescale+reduction);
 }
 
 int *mpi_read_part(enum pnm_kind kind, int rows, int columns, int *offset, int *length) {
