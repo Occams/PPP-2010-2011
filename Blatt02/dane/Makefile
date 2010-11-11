@@ -18,4 +18,4 @@ hermes:
 	mpigcc4.mpich2 -Wall -O3 -fopenmp -o $(APP)-hermes.bin $(SOURCE).c ../../Common/common.c $(INCLUDES32) $(LIBS32)
 
 clean:
-	rm -f $(APP).bin $(APP)-hydra.bin $(APP)-hermes.bin
+	rm -f $(APP).bin $(APP)-hydra.bin $(APP)-hermes.bin output.pgm
