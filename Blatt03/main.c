@@ -56,7 +56,7 @@ int main(int argc, char **argv) {
 		
 		if (sobel) {
 			sobel_mpi_init(mpi_self, mpi_processors);
-			enum kind;
+			enum pnm_kind kind;
 			int rows, columns, maxcolor;
 			int* image = ppp_pnm_read_part(input_path, &kind, &rows, &columns, &maxcolor, sobel_mpi_read_part);
 			int dest[rows*columns];
