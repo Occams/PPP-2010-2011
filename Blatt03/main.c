@@ -100,22 +100,21 @@ int main(int argc, char **argv) {
 		}
 	} else {
 	
+		enum pnm_kind kind;
+		int rows,columns,maxcolor;
+		int *image = ppp_pnm_read(input_path, &kind, &rows, &columns, &maxcolor);
+		int dest[rows*columns];
+	
 		if (vcd) {
-			enum pnm_kind kind;
-			int rows,columns,maxcolor;
-			int *image = ppp_pnm_read(input_path, &kind, &rows, &columns, &maxcolor);
 			vcd_sequential(image,rows,columns,maxcolor);
 			ppp_pnm_write(output_path, kind, rows, columns, maxcolor, image);
 		}
 		
 		if (sobel) {
-			enum pnm_kind kind;
-			int rows,columns,maxcolor;
-			int *image = ppp_pnm_read(input_path, &kind, &rows, &columns, &maxcolor);
-			int dest[rows*columns];
 			sobel_seq(image,dest,rows,columns,sobel_c);
-			ppp_pnm_write(output_path, kind, rows, columns, maxcolor, dest);
 		}
+		
+		ppp_pnm_write(output_path, kind, rows, columns, maxcolor, dest);
 	}
 	
 	/* MPI beenden */
