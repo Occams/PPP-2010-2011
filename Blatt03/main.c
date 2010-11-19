@@ -19,7 +19,7 @@ int mpi_self = MASTER, mpi_processors;
 
 /* Prototypes */
 int m_printf(char *format, ... );
-int *mpi_read_part(enum pnm_kind kind, int rows, int columns, int *offset, int *length);
+int *mpi_read_part_sobel(enum pnm_kind kind, int rows, int columns, int *offset, int *length);
 void printhelp();
 
 int main(int argc, char **argv) {
@@ -44,13 +44,23 @@ int main(int argc, char **argv) {
 		}
 	}
 	
+	/* Init MPI */
+	MPI_Init(&argc, &argv);
+	MPI_Comm_size(MPI_COMM_WORLD, &mpi_processors);
+	MPI_Comm_rank(MPI_COMM_WORLD, &mpi_self);
+	
 	if (parallel) {
 		if (vcd) {
 			
 		}
 		
 		if (sobel) {
-		
+			sobel_mpi_init(mpi_self, mpi_processors);
+			enum kind;
+			int rows, columns, maxcolor;
+			int* image = ppp_pnm_read_part(input_path, &kind, &rows, &columns, &maxcolor, sobel_mpi_read_part);
+			int dest[rows*columns];
+			sobel_parallel(image,dest,rows,columns,sobel_c);
 		}
 	} else {
 	
@@ -62,7 +72,7 @@ int main(int argc, char **argv) {
 			enum pnm_kind kind;
 			int rows,columns,maxcolor;
 			int *image = ppp_pnm_read(input_path, &kind, &rows, &columns, &maxcolor);
-			int *dest  = (int*)malloc(rows*columns*sizeof(int));
+			int dest[rows*columns];
 			sobel_seq(image,dest,rows,columns,sobel_c);
 			ppp_pnm_write(output_path, kind, rows, columns, maxcolor, dest);
 		}
