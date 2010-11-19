@@ -17,19 +17,4 @@ void sobel_seq(int *image, int *dest, int rows, int columns, int c) {
 }
 
 static void get_octet(int* image, int *dest, int x, int y, int rows, int cols) {
-	if(y == 0) {
-		dest[0] = dest[1] = dest[2] = 0;
-	}
-	
-	if(y == cols-1) {
-		dest[5] = dest[6] = dest[7] = 0;
-	}
-	
-	if(x == 0) {
-		dest[0] = dest[3] = dest[6] = 0;
-	}
-	
-	if(x == rows-1) {
-		dest[2] = dest[5] = dest[7] = 0;
-	}
 }
