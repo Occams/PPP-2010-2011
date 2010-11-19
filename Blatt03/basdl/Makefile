@@ -7,7 +7,7 @@ INCLUDES64 = -L./ -I/home/hpcuser/ppp2010-data/packages/ppp_pnm-64 -I../../Commo
 LIBS32 = -L/home/hpcuser/ppp2010-data/packages/ppp_pnm-32 -lppp_pnm -Lm
 INCLUDES32 = -L./ -I/home/hpcuser/ppp2010-data/packages/ppp_pnm-32 -I../../Common
 
-PARAMS = -Wall -std=c99 -O3 -fomit-frame-pointer -fopenmp
+PARAMS = -Wall -std=gnu99 -O3 -fomit-frame-pointer -fopenmp
 
 .PHONY: all clean hydra hermes
 vpath % ./:../../Common
