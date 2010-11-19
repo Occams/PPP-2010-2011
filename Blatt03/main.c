@@ -79,12 +79,12 @@ int *mpi_read_part(enum pnm_kind kind, int rows, int columns, int *offset, int *
 
 void printhelp() {
 		m_printf("Usage:\n");
-		m_printf("-i 	Input path (DEFAULT: input.pgm)\n");
-		m_printf("-o	Output path (DEFAULT: output.pgm)\n");
-		m_printf("-s BOOL	Apply Sobel algorithm (DEFAULT: true)\n");
-		m_printf("-v BOOL	Apply VCD algorithm (DEFAULT: false)\n");
-		m_printf("-p BOOL	Parallel execution (DEFAULT: false)\n");
-		m_printf("-h	This message\n");
+		m_printf("-i  Input path (DEFAULT: input.pgm)\n");
+		m_printf("-o  Output path (DEFAULT: output.pgm)\n");
+		m_printf("-s  BOOL	Apply Sobel algorithm (DEFAULT: true)\n");
+		m_printf("-v  BOOL	Apply VCD algorithm (DEFAULT: false)\n");
+		m_printf("-p  BOOL	Parallel execution (DEFAULT: false)\n");
+		m_printf("-h  This message\n");
 }
 
 int m_printf(char *format, ...) {
