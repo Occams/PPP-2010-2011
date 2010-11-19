@@ -9,12 +9,10 @@
 #include "common.h"
 #include <math.h>
 #include <stdarg.h>
+#include <sobel.h>
+#include <vcd.h>
 
 #define MASTER 0
-#define C 0.9
-#define EPSILON 0.005
-#define KAPPA 30
-#define DELTA 0.1
 
 /* Globals */
 int mpi_self, mpi_processors;
@@ -45,11 +43,25 @@ int main(int argc, char **argv) {
 	}
 	
 	if (parallel) {
-	
+		
+		if (vcd) {
+		
+		}
+		
+		if (sobel) {
+		
+		}
 	} else {
 	
-	}
+		if (vcd) {
+		
+		}
+		
+		if (sobel) {
+		
+		}
 	
+	}
 	
 	return 0;
 }

@@ -1,5 +1,5 @@
 SOURCE = main
-COMMON = ../../Common
+COMMON = ../Common
 ADD_SOURCES = vcd.c sobel.c $(COMMON)/common.c
 
 LIBS64 = -L/home/hpcuser/ppp2010-data/packages/ppp_pnm-64 -lppp_pnm -Lm
