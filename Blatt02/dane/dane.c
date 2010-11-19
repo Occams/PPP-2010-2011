@@ -60,10 +60,6 @@ int main(int argc, char **argv) {
 		case 'i': input_path = optarg; break;
 		case 'o': output_path = optarg; break;
 		case 'n': count = atoi(optarg); break;
-		case 'h': 
-			printhelp();
-			MPI_Finalize();
-			return 1;
 		default:
 			printhelp();
 			MPI_Finalize();
