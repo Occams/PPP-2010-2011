@@ -65,7 +65,11 @@ int main(int argc, char **argv) {
 	} else {
 	
 		if (vcd) {
-			printf("PHI(1): %f \n",PHI(10));
+			enum pnm_kind kind;
+			int rows,columns,maxcolor;
+			int *image = ppp_pnm_read(input_path, &kind, &rows, &columns, &maxcolor);
+			vcd_sequential(image,rows,columns,maxcolor);
+			ppp_pnm_write(output_path, kind, rows, columns, maxcolor, image);
 		}
 		
 		if (sobel) {
