@@ -1,16 +1,17 @@
 SOURCE = main
-ADD_SOURCES = vcd.c sobel.c common.c
+COMMON = ../../Common
+ADD_SOURCES = vcd.c sobel.c $(COMMON)/common.c
 
 LIBS64 = -L/home/hpcuser/ppp2010-data/packages/ppp_pnm-64 -lppp_pnm -Lm
-INCLUDES64 = -L./ -I/home/hpcuser/ppp2010-data/packages/ppp_pnm-64 -I../../Common
+INCLUDES64 = -I./ -I/home/hpcuser/ppp2010-data/packages/ppp_pnm-64 -I$(COMMON)
 
 LIBS32 = -L/home/hpcuser/ppp2010-data/packages/ppp_pnm-32 -lppp_pnm -Lm
-INCLUDES32 = -L./ -I/home/hpcuser/ppp2010-data/packages/ppp_pnm-32 -I../../Common
+INCLUDES32 = -I./ -I/home/hpcuser/ppp2010-data/packages/ppp_pnm-32 -I$(COMMON)
 
 PARAMS = -Wall -std=gnu99 -O3 -fomit-frame-pointer -fopenmp
 
+
 .PHONY: all clean hydra hermes
-vpath % ./:../../Common
 
 all: $(SOURCE).c
 	mpicc $(PARAMS) -o $(SOURCE).bin $(SOURCE).c $(ADD_SOURCES) $(INCLUDES64) $(LIBS64)
