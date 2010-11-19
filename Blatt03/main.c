@@ -16,7 +16,7 @@
 #define MASTER 0
 
 /* Globals */
-int mpi_self, mpi_processors;
+int mpi_self = MASTER, mpi_processors;
 
 /* Prototypes */
 int m_printf(char *format, ... );
@@ -101,7 +101,11 @@ int main(int argc, char **argv) {
 	} else {
 	
 		if (vcd) {
-		
+			enum pnm_kind kind;
+			int rows,columns,maxcolor;
+			int *image = ppp_pnm_read(input_path, &kind, &rows, &columns, &maxcolor);
+			vcd_sequential(image,rows,columns,maxcolor);
+			ppp_pnm_write(output_path, kind, rows, columns, maxcolor, image);
 		}
 		
 		if (sobel) {
