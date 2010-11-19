@@ -10,6 +10,6 @@
 #define XI(v) ( 1.0 / sqrt(2) * PSI(v) * exp( -( PSI(v) * PSI(v) ) / 2.0 ) )
 #define PSI(v) ( (v) / (sqrt(2) * KAPPA))
 
-int *vcd_sequential(int *image, int rows, int columns);
+int *vcd_sequential(int *image, int rows, int columns, int maxcolor);
 
 #endif
