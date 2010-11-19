@@ -26,9 +26,10 @@ int main(int argc, char **argv) {
 	int option;
 	char *input_path = "input.pgm", *output_path = "output.pgm";
 	bool sobel = true, vcd = false, parallel = false;
+	int sobel_c = 1;
 	
 	/* Read cmdline params */
-	while ((option = getopt(argc,argv,"s:v:p:i:o:h")) != -1) {
+	while ((option = getopt(argc,argv,"s:v:p:i:o:c:h")) != -1) {
 	
 		switch(option) {
 		case 's': sobel = atoi(optarg); break;
@@ -36,6 +37,7 @@ int main(int argc, char **argv) {
 		case 'p': parallel = atoi(optarg); break;
 		case 'i': input_path = optarg; break;
 		case 'o': output_path = optarg; break;
+		case 'c': sobel_c = atoi(optarg); break;
 		default:
 			printhelp();
 			return 1;
@@ -43,9 +45,8 @@ int main(int argc, char **argv) {
 	}
 	
 	if (parallel) {
-		
 		if (vcd) {
-		
+			
 		}
 		
 		if (sobel) {
@@ -58,9 +59,13 @@ int main(int argc, char **argv) {
 		}
 		
 		if (sobel) {
-		
+			enum pnm_kind kind;
+			int rows,columns,maxcolor;
+			int *image = ppp_pnm_read(input_path, &kind, &rows, &columns, &maxcolor);
+			int *dest  = (int*)malloc(rows*columns*sizeof(int));
+			sobel_seq(image,dest,rows,columns,sobel_c);
+			ppp_pnm_write(output_path, kind, rows, columns, maxcolor, dest);
 		}
-	
 	}
 	
 	return 0;
@@ -84,6 +89,7 @@ void printhelp() {
 		m_printf("-s  BOOL	Apply Sobel algorithm (DEFAULT: true)\n");
 		m_printf("-v  BOOL	Apply VCD algorithm (DEFAULT: false)\n");
 		m_printf("-p  BOOL	Parallel execution (DEFAULT: false)\n");
+		m_printf("-c  INT	Sobel c parameter (DEFAULT: 1)\n");
 		m_printf("-h  This message\n");
 }
 
