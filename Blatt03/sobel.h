@@ -1,6 +1,8 @@
 #ifndef SOBEL_H_INCLUDED
 #define SOBEL_H_INCLUDED
 
+#include <ppp_pnm.h>
+
 void sobel_seq(int *image, int *dest, int rows, int columns, int c);
 
 void sobel_mpi_init(int mpi_self, int mpi_processors);
