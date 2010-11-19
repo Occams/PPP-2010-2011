@@ -1,6 +1,11 @@
 #ifndef VCD_H_INCLUDED
 #define VCD_H_INCLUDED
 
+#include <math.h>
+#include <stdbool.h>
+#include "common.h"
+#include <stdio.h>
+
 #define N 40
 #define EPSILON 0.005
 #define KAPPA 30.0

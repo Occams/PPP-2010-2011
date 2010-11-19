@@ -1,7 +1,4 @@
 #include <vcd.h>
-#include <math.h>
-#include <stdbool.h>
-#include "common.h"
 
 static double delta(double *i, int x, int y, int rows, int cols);
 static void renormalize(double *i, int length, int maxcolor);
@@ -10,21 +7,21 @@ static void intToDoubleArray(int *src, double *dest, int length);
 static void doubleToIntArray(double *src, int *dest, int length);
 
 int *vcd_sequential(int *image, int rows, int columns, int maxcolor) {
-	int i,x,y, rows_l = rows, columns_l = columns, idx, length = rows_l * columns_l;
+	int i,x,y, rows_l = rows, columns_l = columns, idx, length;
+	length = rows_l * columns_l;
 	double img[length];
 	bool stop = false;
 	double d;
 	
 	intToDoubleArray(image, img, length);
-	
 	for (i = 0; i < N && !stop; i++) {
 		stop =true;
 		
 		for (x = 0; x < rows_l; x++) {
-			
 			for (y = 0; y < columns_l; y++) {
-				idx = y*columns_l+x;
+				idx = x*columns_l+y;
 				d = delta(img, x, y, rows_l, columns_l);
+				//printf("(%i,%i)\n",x,y);
 				
 				/* Stop condition */
 				stop &= d <= EPSILON || x == 0 || y == 0;	
@@ -42,7 +39,7 @@ static void intToDoubleArray(int *src, double *dest, int length) {
 	int x;
 	
 	for (x = 0; x < length; x++) {
-		dest[x] = (int) src[x]; 
+		dest[x] = (int) src[x];
 	}
 }
 
@@ -78,6 +75,6 @@ static void renormalize(double *i, int length, int maxcolor) {
 }
 
 static double s(double *img, int x, int y, int rows, int cols) {
-	return x < 0 || x >= rows || y < 0 || y >= cols ? 0.0 : img[y*cols + x];
+	return x < 0 || x >= rows || y < 0 || y >= cols ? 0.0 : img[x*cols+y];
 }
 
