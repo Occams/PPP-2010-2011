@@ -11,6 +11,7 @@
 #include <stdarg.h>
 #include <sobel.h>
 #include <vcd.h>
+#include <pgm_distribute.h>
 
 #define MASTER 0
 
@@ -56,11 +57,46 @@ int main(int argc, char **argv) {
 		
 		if (sobel) {
 			sobel_mpi_init(mpi_self, mpi_processors);
+			
 			enum pnm_kind kind;
 			int rows, columns, maxcolor;
 			int* image = ppp_pnm_read_part(input_path, &kind, &rows, &columns, &maxcolor, sobel_mpi_read_part);
-			int dest[rows*columns];
-			sobel_parallel(image,dest,rows,columns,sobel_c);
+			
+			pgm_part info;
+			pgm_partinfo(rows, mpi_self, &info);
+			int dest[info.rows*columns];
+			
+			sobel_parallel(image,dest,info.rows,columns,sobel_c);
+			
+			int *gath_image, *gath_counts, *gath_displs;
+			if(mpi_self == 0) {
+			
+				int g_i[rows*columns];
+				int g_c[mpi_processors];
+				int g_d[mpi_processors];
+				
+				gath_image = g_i;
+				gath_counts = g_c;
+				gath_displs = g_d;
+
+				pgm_part info;				
+				int i = 0;
+				for(i = 0; i < mpi_processors; i++) {
+					pgm_partinfo(rows, i, &info);
+					gath_counts[i] = columns*(info.rows - info.overlapping_top - info.overlapping_bot);
+					gath_displs[i] = columns*(info.offset + info.overlapping_top);
+				}
+			}
+			
+			MPI_Gatherv(
+				dest+(info.overlapping_top*columns),
+				gath_counts[mpi_self],
+				MPI_INT,
+				gath_image, gath_counts, gath_displs, MPI_INT, 0, MPI_COMM_WORLD);
+			
+			if(mpi_self == 0) {
+				ppp_pnm_write(output_path, kind, rows, columns, maxcolor, gath_image);
+			}
 		}
 	} else {
 	
@@ -82,6 +118,7 @@ int main(int argc, char **argv) {
 		}
 	}
 	
+	/* MPI beenden */
 	MPI_Finalize();
 	return 0;
 }
