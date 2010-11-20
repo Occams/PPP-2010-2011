@@ -19,7 +19,7 @@
 
 static int sobel_mpi_self, sobel_mpi_processors;
 
-void sobel_seq(int *image, int *dest, int rows, int columns, int c) {
+void sobel_seq(int *image, int *dest, int rows, int columns, int c, int maxcolor) {
 	int x,y,sx,sy;
 
 	for(y = 0; y < rows; y++) {
@@ -27,6 +27,7 @@ void sobel_seq(int *image, int *dest, int rows, int columns, int c) {
 			sx = SOBELX(image,x,y,columns,rows);
 			sy = SOBELY(image,x,y,columns,rows);
 			dest[y*columns+x] = c*sqrt(sx*sx+sy*sy);
+			dest[y*columns+x] = MIN(dest[y*columns+x], maxcolor);
 		}
 	}
 }
@@ -47,7 +48,7 @@ int *sobel_mpi_read_part(enum pnm_kind kind, int rows, int columns, int *offset,
 	return (int*)malloc(info.rows*columns*sizeof(int));
 }
 
-void sobel_parallel(int *image, int *dest, int rows, int columns, int c) {
+void sobel_parallel(int *image, int *dest, int rows, int columns, int c, int maxcolor) {
 	int x,y,sx,sy;
 
 	for(y = 0; y < rows; y++) {
@@ -55,6 +56,7 @@ void sobel_parallel(int *image, int *dest, int rows, int columns, int c) {
 			sx = SOBELX(image,x,y,columns,rows);
 			sy = SOBELY(image,x,y,columns,rows);
 			dest[y*columns+x] = c*sqrt(sx*sx+sy*sy);
+			dest[y*columns+x] = MIN(dest[y*columns+x], maxcolor);
 		}
 	}
 }

@@ -68,7 +68,7 @@ int main(int argc, char **argv) {
 			pgm_partinfo(rows, mpi_self, &mypart);
 			int dest[mypart.rows*columns];
 			
-			sobel_parallel(image,dest,mypart.rows,columns,sobel_c);
+			sobel_parallel(image,dest,mypart.rows,columns,sobel_c, maxcolor);
 			
 			int *gath_image, *gath_counts, *gath_displs;
 			int g_i[rows*columns];
@@ -111,7 +111,7 @@ int main(int argc, char **argv) {
 		}
 		
 		if (sobel) {
-			sobel_seq(image,dest,rows,columns,sobel_c);
+			sobel_seq(image,dest,rows,columns,sobel_c, maxcolor);
 			ppp_pnm_write(output_path, kind, rows, columns, maxcolor, dest);
 		}
 		
