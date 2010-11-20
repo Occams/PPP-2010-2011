@@ -59,6 +59,7 @@ void sobel_parallel(int *image, int rows, int columns, int c, int maxcolor) {
 	int x,y,sx,sy;
 	int dest[rows*columns];
 
+	#pragma omp parallel for private(x)
 	for(y = 0; y < rows; y++) {
 		for(x = 0; x < columns; x++) {
 			sx = SOBELX(image,x,y,columns,rows);
@@ -67,6 +68,8 @@ void sobel_parallel(int *image, int rows, int columns, int c, int maxcolor) {
 		}
 	}
 	
+	
+	#pragma omp parallel for private(x)
 	for(y = 0; y < rows; y++) {
 		for(x = 0; x < columns; x++) {
 			image[y*columns+x] = MIN(dest[y*columns+x], maxcolor);

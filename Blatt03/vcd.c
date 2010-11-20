@@ -1,4 +1,5 @@
 #include <vcd.h>
+#include <mpi.h>
 
 static int vcd_mpi_self = 0, vcd_mpi_processors = 1;
 
@@ -53,6 +54,34 @@ void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 		tmp = img1;
 		img1 = img2;
 		img2 = tmp;
+		
+		/* Share overlapping at the top */
+		if(vcd_mpi_self > 0) {
+			MPI_Status status;
+			MPI_Request send, receive;
+			MPI_Isend(img1+columns, columns, MPI_INT, vcd_mpi_self - 1,
+                0, MPI_COMM_WORLD, &send);
+			MPI_Irecv(img1, columns, MPI_INT, vcd_mpi_self - 1,
+				0, MPI_COMM_WORLD, &receive);
+			MPI_Wait(&send, &status);
+			MPI_Wait(&receive, &status);
+        }
+        
+		/* Share overlapping at the bottom */
+		/*
+		if(vcd_mpi_self < vcd_mpi_processors-1) {
+			MPI_Status status;
+			MPI_Request send, receive;
+			MPI_Isend(img1+(columns-2)*rows, columns, MPI_INT, vcd_mpi_self + 1,
+                1, MPI_COMM_WORLD, &send);
+			MPI_Irecv(img1+(columns-1)*rows, columns, MPI_INT, vcd_mpi_self + 1,
+				1, MPI_COMM_WORLD, &receive);
+			MPI_Wait(&send, &status);
+			MPI_Wait(&receive, &status);
+        }
+        */
+       
+
 	}
 	
 	//printf("VCD Iterations: %i", i);
