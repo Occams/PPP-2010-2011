@@ -31,7 +31,7 @@ int main(int argc, char **argv) {
 	
 	/* Read cmdline params */
 	while ((option = getopt(argc,argv,"s:v:p:i:o:c:h")) != -1) {
-	
+		
 		switch(option) {
 		case 's': sobel = atoi(optarg); break;
 		case 'v': vcd = atoi(optarg); break;
@@ -52,6 +52,43 @@ int main(int argc, char **argv) {
 	
 	if (parallel) {
 		if (vcd) {
+			vcd_mpi_init(mpi_self, mpi_processors);
+			pgm_distribute_init(mpi_processors);
+			
+			enum pnm_kind kind;
+			int rows, columns, maxcolor;
+			int* image = ppp_pnm_read_part(input_path, &kind, &rows, &columns, &maxcolor, vcd_mpi_read_part);
+			
+			pgm_part info;
+			pgm_partinfo(rows, mpi_self, &info);
+			
+			vcd_sequential(image, info.rows, columns, maxcolor);
+			
+			int *gath_image = NULL, *gath_counts = NULL, *gath_displs = NULL;
+			
+			int g_i[rows*columns];
+			int g_c[mpi_processors];
+			int g_d[mpi_processors];
+			
+			gath_image = g_i;
+			gath_counts = g_c;
+			gath_displs = g_d;
+			
+			int i = 0;
+			for(i = 0; i < mpi_processors; i++) {
+				gath_counts[i] = columns*(info.rows - info.overlapping_top - info.overlapping_bot);
+				gath_displs[i] = columns*(info.offset + info.overlapping_top);
+			}
+			
+			MPI_Gatherv(
+			image+(info.overlapping_top*columns),
+			gath_counts[mpi_self],
+			MPI_INT,
+			gath_image, gath_counts, gath_displs, MPI_INT, 0, MPI_COMM_WORLD);
+			
+			if(mpi_self == 0) {
+				ppp_pnm_write(output_path, kind, rows, columns, maxcolor, gath_image);
+			}
 			
 		}
 		
@@ -88,23 +125,22 @@ int main(int argc, char **argv) {
 			}
 			
 			MPI_Gatherv(
-				dest+(mypart.overlapping_top*columns),
-				gath_counts[mpi_self],
-				MPI_INT,
-				gath_image, gath_counts, gath_displs, MPI_INT, 0, MPI_COMM_WORLD);
-				
+			dest+(mypart.overlapping_top*columns),
+			gath_counts[mpi_self],
+			MPI_INT,
+			gath_image, gath_counts, gath_displs, MPI_INT, 0, MPI_COMM_WORLD);
 			
 			if(mpi_self == 0) {
 				ppp_pnm_write(output_path, kind, rows, columns, maxcolor, gath_image);
 			}
 		}
 	} else {
-	
+		
 		enum pnm_kind kind;
 		int rows,columns,maxcolor;
 		int *image = ppp_pnm_read(input_path, &kind, &rows, &columns, &maxcolor);
 		int dest[rows*columns];
-	
+		
 		if (vcd) {
 			vcd_sequential(image,rows,columns,maxcolor);
 			ppp_pnm_write(output_path, kind, rows, columns, maxcolor, image);
@@ -134,14 +170,14 @@ int *mpi_read_part(enum pnm_kind kind, int rows, int columns, int *offset, int *
 }
 
 void printhelp() {
-		m_printf("Usage:\n");
-		m_printf("-i  Input path (DEFAULT: input.pgm)\n");
-		m_printf("-o  Output path (DEFAULT: output.pgm)\n");
-		m_printf("-s  BOOL	Apply Sobel algorithm (DEFAULT: true)\n");
-		m_printf("-v  BOOL	Apply VCD algorithm (DEFAULT: false)\n");
-		m_printf("-p  BOOL	Parallel execution (DEFAULT: false)\n");
-		m_printf("-c  INT	Sobel c parameter (DEFAULT: 1)\n");
-		m_printf("-h  This message\n");
+	m_printf("Usage:\n");
+	m_printf("-i  Input path (DEFAULT: input.pgm)\n");
+	m_printf("-o  Output path (DEFAULT: output.pgm)\n");
+	m_printf("-s  BOOL	Apply Sobel algorithm (DEFAULT: true)\n");
+	m_printf("-v  BOOL	Apply VCD algorithm (DEFAULT: false)\n");
+	m_printf("-p  BOOL	Parallel execution (DEFAULT: false)\n");
+	m_printf("-c  INT	Sobel c parameter (DEFAULT: 1)\n");
+	m_printf("-h  This message\n");
 }
 
 int m_printf(char *format, ...) {

@@ -6,6 +6,7 @@
 #include "common.h"
 #include <stdio.h>
 #include "pgm_distribute.h"
+#include <ppp_pnm.h>
 
 #define N 40
 #define EPSILON 0.005
@@ -17,5 +18,8 @@
 #define PSI(v) ( (v) / (sqrt(2) * KAPPA))
 
 int *vcd_sequential(int *image, int rows, int columns, int maxcolor);
+int *vcd_parallel(int *image, int rows, int columns, int maxcolor);
+void vcd_mpi_init(int mpi_self, int mpi_processors);
+int *vcd_mpi_read_part(enum pnm_kind kind, int rows, int columns, int *offset, int *length);
 
 #endif
