@@ -57,7 +57,11 @@ int main(int argc, char **argv) {
 		
 		enum pnm_kind kind;
 		int rows, columns, maxcolor;
-		int* image = ppp_pnm_read_part(input_path, &kind, &rows, &columns, &maxcolor, vcd_mpi_read_part);
+		
+		int* image;
+		
+		if(vcd) image = ppp_pnm_read_part(input_path, &kind, &rows, &columns, &maxcolor, vcd_mpi_read_part);
+		if(sobel) image = ppp_pnm_read_part(input_path, &kind, &rows, &columns, &maxcolor, sobel_mpi_read_part);
 		
 		pgm_part mypart;
 		pgm_partinfo(rows, mpi_self, &mypart);

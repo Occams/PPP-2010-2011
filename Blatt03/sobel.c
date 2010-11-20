@@ -42,7 +42,6 @@ void sobel_seq(int *image, int rows, int columns, int c, int maxcolor) {
 void sobel_mpi_init(int mpi_self, int mpi_processors) {
 	sobel_mpi_self = mpi_self;
 	sobel_mpi_processors = mpi_processors;
-	printf("%i, %i\n", sobel_mpi_processors, sobel_mpi_self);
 }
 
 
