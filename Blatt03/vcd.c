@@ -10,7 +10,7 @@ static void doubleToIntArray(double *src, int *dest, int length);
 static void intToDoubleArray_parallel(int *src, double *dest, int length);
 static void doubleToIntArray_parallel(double *src, int *dest, int length);
 
-int *vcd_parallel(int *image, int rows, int columns, int maxcolor) {
+void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 	int i,x,y, rows_l = rows, columns_l = columns, idx, length = rows_l*columns_l;
 	double *img1 = (double *) malloc(length*sizeof(double)), *img2 = (double *) malloc(length*sizeof(double)), *tmp, d;
 	bool stop = false, edge;
@@ -20,10 +20,50 @@ int *vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 		exit(1);
 	}
 	
+	intToDoubleArray_parallel(image, img1, length);
 	
+	for (i = 0; i < N && !stop; i++) {
+		stop = true;
+		
+		#pragma omp parallel 
+		{
+			bool stop_t = true;
+		
+			#pragma omp for private (y,idx,edge,d)
+			for (x = 0; x < rows_l; x++) {
+				for (y = 0; y < columns_l; y++) {
+					idx = x*columns_l+y;
+					edge = x == 0 || y == 0 || x+1 == rows_l || y+1 == columns_l;
+					d = edge ? delta_edge(img1, x, y, rows_l, columns_l) : delta(img1, x, y, rows_l, columns_l);
+					stop_t = stop_t && ( ABS(d) <= EPSILON || edge);
+					
+					#pragma omp critical
+					{
+						img2[idx] = img1[idx] + KAPPA * DELTA_T * d;
+					}
+				}
+			}
+			
+			#pragma omp critical
+			{
+				stop &=stop_t;
+			}
+		}
+		
+		tmp = img1;
+		img1 = img2;
+		img2 = tmp;
+	}
+	
+	//printf("VCD Iterations: %i", i);
+	
+	renormalize_parallel(img1, length, maxcolor);
+	doubleToIntArray_parallel(img1, image, length);
+	free(img1);
+	free(img2);
 }
 
-int *vcd_sequential(int *image, int rows, int columns, int maxcolor) {
+void vcd_sequential(int *image, int rows, int columns, int maxcolor) {
 	int i,x,y, rows_l = rows, columns_l = columns, idx, length = rows_l*columns_l;
 	double *img1 = (double *) malloc(length*sizeof(double)), *img2 = (double *) malloc(length*sizeof(double)), *tmp, d;
 	bool stop = false, edge;
@@ -53,13 +93,12 @@ int *vcd_sequential(int *image, int rows, int columns, int maxcolor) {
 		img2 = tmp;
 	}
 	
-	printf("VCD Iterations: %i", i);
+	//printf("VCD Iterations: %i", i);
 	
 	renormalize(img1, length, maxcolor);
 	doubleToIntArray(img1, image, length);
 	free(img1);
 	free(img2);
-	return image;
 }
 
 static void intToDoubleArray(int *src, double *dest, int length) {
