@@ -101,11 +101,11 @@ int main(int argc, char **argv) {
 			int rows, columns, maxcolor;
 			int* image = ppp_pnm_read_part(input_path, &kind, &rows, &columns, &maxcolor, sobel_mpi_read_part);
 			
-			pgm_part info;
-			pgm_partinfo(rows, mpi_self, &info);
-			int dest[info.rows*columns];
+			pgm_part mypart;
+			pgm_partinfo(rows, mpi_self, &mypart);
+			int dest[mypart.rows*columns];
 			
-			sobel_parallel(image,dest,info.rows,columns,sobel_c);
+			sobel_parallel(image,dest,mypart.rows,columns,sobel_c);
 			
 			int *gath_image, *gath_counts, *gath_displs;
 			int g_i[rows*columns];
@@ -116,6 +116,7 @@ int main(int argc, char **argv) {
 			gath_counts = g_c;
 			gath_displs = g_d;
 
+			pgm_part info;				
 			int i = 0;
 			for(i = 0; i < mpi_processors; i++) {
 				pgm_partinfo(rows, i, &info);
@@ -124,12 +125,10 @@ int main(int argc, char **argv) {
 			}
 			
 			MPI_Gatherv(
-			dest+(info.overlapping_top*columns),
+			dest+(mypart.overlapping_top*columns),
 			gath_counts[mpi_self],
 			MPI_INT,
 			gath_image, gath_counts, gath_displs, MPI_INT, 0, MPI_COMM_WORLD);
-			
-			printf("sdpfnsdopf\n");
 			
 			if(mpi_self == 0) {
 				ppp_pnm_write(output_path, kind, rows, columns, maxcolor, gath_image);
