@@ -56,7 +56,9 @@ int main(int argc, char **argv) {
 		}
 		
 		if (sobel) {
+			printf("SOBEL PARALLEL\n");
 			sobel_mpi_init(mpi_self, mpi_processors);
+			pgm_distribute_init(mpi_processors);
 			
 			enum pnm_kind kind;
 			int rows, columns, maxcolor;
@@ -69,23 +71,19 @@ int main(int argc, char **argv) {
 			sobel_parallel(image,dest,info.rows,columns,sobel_c);
 			
 			int *gath_image, *gath_counts, *gath_displs;
-			if(mpi_self == 0) {
+			int g_i[rows*columns];
+			int g_c[mpi_processors];
+			int g_d[mpi_processors];
 			
-				int g_i[rows*columns];
-				int g_c[mpi_processors];
-				int g_d[mpi_processors];
-				
-				gath_image = g_i;
-				gath_counts = g_c;
-				gath_displs = g_d;
+			gath_image = g_i;
+			gath_counts = g_c;
+			gath_displs = g_d;
 
-				pgm_part info;				
-				int i = 0;
-				for(i = 0; i < mpi_processors; i++) {
-					pgm_partinfo(rows, i, &info);
-					gath_counts[i] = columns*(info.rows - info.overlapping_top - info.overlapping_bot);
-					gath_displs[i] = columns*(info.offset + info.overlapping_top);
-				}
+			int i = 0;
+			for(i = 0; i < mpi_processors; i++) {
+				pgm_partinfo(rows, i, &info);
+				gath_counts[i] = columns*(info.rows - info.overlapping_top - info.overlapping_bot);
+				gath_displs[i] = columns*(info.offset + info.overlapping_top);
 			}
 			
 			MPI_Gatherv(
@@ -93,6 +91,8 @@ int main(int argc, char **argv) {
 				gath_counts[mpi_self],
 				MPI_INT,
 				gath_image, gath_counts, gath_displs, MPI_INT, 0, MPI_COMM_WORLD);
+				
+			printf("sdpfnsdopf\n");
 			
 			if(mpi_self == 0) {
 				ppp_pnm_write(output_path, kind, rows, columns, maxcolor, gath_image);
