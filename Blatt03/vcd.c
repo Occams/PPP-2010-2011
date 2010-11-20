@@ -68,7 +68,6 @@ void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
         }
         
 		/* Share overlapping at the bottom */
-		/*
 		if(vcd_mpi_self < vcd_mpi_processors-1) {
 			MPI_Status status;
 			MPI_Request send, receive;
@@ -79,9 +78,7 @@ void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 			MPI_Wait(&send, &status);
 			MPI_Wait(&receive, &status);
         }
-        */
-       
-
+        
 	}
 	
 	//printf("VCD Iterations: %i", i);
