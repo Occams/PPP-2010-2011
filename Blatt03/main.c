@@ -76,6 +76,11 @@ int main(int argc, char **argv) {
 		gath_counts = (int*)malloc(sizeof(int)*mpi_processors);
 		gath_displs = (int*)malloc(sizeof(int)*mpi_processors);
 
+		if( (mpi_self == 0 && gath_image == NULL) || gath_counts == NULL || gath_displs == NULL) {
+			printf("Alloc failed... Will exit now...\n");
+			exit(1);
+		}
+
 		pgm_part info;				
 		int i = 0;
 		for(i = 0; i < mpi_processors; i++) {
