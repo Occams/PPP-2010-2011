@@ -21,11 +21,22 @@ void pgm_partinfo(int rows, int proc, pgm_part *info) {
 }
 
 void renormalize(double *i, int length, int maxcolor) {
-	int x,length_l = length;
+	int x;
 	double *img = i;
 	
-	for (x = 0; x < length_l; x++) {
+	for (x = 0; x < length; x++) {
 			img[length] = MIN(img[length], maxcolor);
 			img[length] = MAX(img[length], 0);
-		}
+	}
+}
+
+void renormalize_parallel(double *i, int length, int maxcolor) {
+	int x;
+	double *img = i;
+	
+	#pragma omp parallel for
+	for (x = 0; x < length; x++) {
+			img[length] = MIN(img[length], maxcolor);
+			img[length] = MAX(img[length], 0);
+	}
 }
