@@ -1,5 +1,6 @@
 #ifndef PGM_DISTRIBUTE_H_INCLUDED
 #define PGM_DISTRIBUTE_H_INCLUDED
+#include "common.h"
 
 typedef struct {
 	int rows; /* Real amount of rows of this part */
@@ -10,5 +11,6 @@ typedef struct {
 
 void pgm_distribute_init(int processors);
 void pgm_partinfo(int rows, int proc, pgm_part *info);
+void renormalize(double *i, int length, int maxcolor);
 
 #endif

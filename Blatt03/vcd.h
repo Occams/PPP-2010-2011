@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include "common.h"
 #include <stdio.h>
+#include "pgm_distribute.h"
 
 #define N 40
 #define EPSILON 0.005

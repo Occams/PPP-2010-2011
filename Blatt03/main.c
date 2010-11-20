@@ -112,9 +112,9 @@ int main(int argc, char **argv) {
 		
 		if (sobel) {
 			sobel_seq(image,dest,rows,columns,sobel_c);
+			ppp_pnm_write(output_path, kind, rows, columns, maxcolor, dest);
 		}
 		
-		ppp_pnm_write(output_path, kind, rows, columns, maxcolor, dest);
 	}
 	
 	/* MPI beenden */

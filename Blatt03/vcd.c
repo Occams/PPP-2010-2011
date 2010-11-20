@@ -1,37 +1,50 @@
 #include <vcd.h>
 
+static double delta_edge(double *i, int x, int y, int rows, int cols);
 static double delta(double *i, int x, int y, int rows, int cols);
-static void renormalize(double *i, int length, int maxcolor);
 static double s(double *img, int x, int y, int rows, int cols);
 static void intToDoubleArray(int *src, double *dest, int length);
 static void doubleToIntArray(double *src, int *dest, int length);
 
 int *vcd_sequential(int *image, int rows, int columns, int maxcolor) {
-	int i,x,y, rows_l = rows, columns_l = columns, idx, length;
-	length = rows_l * columns_l;
-	double img[length];
-	bool stop = false;
-	double d;
+	int i,x,y, rows_l = rows, columns_l = columns, idx, length = rows_l*columns_l;
+	double img1[length], img2[length];
+	double *img1_p = img1;
+	double *img2_p = img2;
+	double	d, *tmp;
+	bool stop = false, edge;
 	
-	intToDoubleArray(image, img, length);
+	if (img1 == NULL || img2 == NULL) {
+		printf("Out of memory.\n");
+		exit(1);
+	}
+	
+	intToDoubleArray(image, img1_p, length);
+	
 	for (i = 0; i < N && !stop; i++) {
-		stop =true;
+		stop = true;
 		
 		for (x = 0; x < rows_l; x++) {
 			for (y = 0; y < columns_l; y++) {
 				idx = x*columns_l+y;
-				d = delta(img, x, y, rows_l, columns_l);
-				//printf("(%i,%i)\n",x,y);
-				
-				/* Stop condition */
-				stop &= d <= EPSILON || x == 0 || y == 0;	
-				img[idx] = img[idx] + KAPPA * DELTA_T * d;
+				edge = x == 0 || y == 0 || x+1 == rows_l || y+1 == columns_l;
+				d = edge ? delta_edge(img1_p, x, y, rows_l, columns_l) : delta(img1_p, x, y, rows_l, columns_l);
+				stop &= ABS(d) <= EPSILON || edge;	
+				img2_p[idx] = img1_p[idx] + KAPPA * DELTA_T * d;
 			}
 		}
+		
+		tmp = img1_p;
+		img1_p = img2_p;
+		img2_p = tmp;
 	}
 	
-	renormalize(img, length, maxcolor);
-	doubleToIntArray(img, image, length);
+	printf("VCD Iterations: %i", i);
+	
+	renormalize(img1, length, maxcolor);
+	doubleToIntArray(img1, image, length);
+	free(img1);
+	free(img2);
 	return image;
 }
 
@@ -50,9 +63,22 @@ static void doubleToIntArray(double *src, int *dest, int length) {
 		dest[x] = (double) src[x]; 
 	}
 }
-
 static double delta(double *i, int x, int y, int rows, int cols) {
-	double center = s(i,x,y,rows,cols);
+	double center = i[x*cols + y];
+	
+	return PHI(i[(x+1)*cols + y] - center) 
+		- PHI(center - i[(x-1)*cols + y])
+		+ PHI(i[x*cols + y + 1] - center)
+		- PHI(center - i[x*cols + y - 1])
+		+ XI(i[(x+1)*cols + y + 1] - center)
+		- XI(center - i[(x-1)*cols + y - 1])
+		+ XI(i[(x-1)*cols + y + 1] - center)
+		- XI(center - i[(x+1)*cols + y - 1]);
+
+}
+
+static double delta_edge(double *i, int x, int y, int rows, int cols) {
+	double center = i[x*cols + y];
 	
 	return PHI(s(i,x+1,y,rows,cols) - center) 
 		- PHI(center - s(i,x-1,y,rows,cols))
@@ -62,16 +88,6 @@ static double delta(double *i, int x, int y, int rows, int cols) {
 		- XI(center - s(i,x-1,y-1,rows,cols))
 		+ XI(s(i,x-1,y+1,rows,cols) - center)
 		- XI(center - s(i,x+1,y-1,rows,cols));
-}
-
-static void renormalize(double *i, int length, int maxcolor) {
-	int x,length_l = length;
-	double *img = i;
-	
-	for (x = 0; x < length_l; x++) {
-			img[length] = MIN(img[length], maxcolor);
-			img[length] = MAX(img[length], 0);
-		}
 }
 
 static double s(double *img, int x, int y, int rows, int cols) {

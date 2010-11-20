@@ -19,3 +19,13 @@ void pgm_partinfo(int rows, int proc, pgm_part *info) {
 	info->overlapping_top = (proc == 0) ? 0 : 1;
 	info->overlapping_bot = (proc == pgm_procs - 1) ? 0 : 1;
 }
+
+void renormalize(double *i, int length, int maxcolor) {
+	int x,length_l = length;
+	double *img = i;
+	
+	for (x = 0; x < length_l; x++) {
+			img[length] = MIN(img[length], maxcolor);
+			img[length] = MAX(img[length], 0);
+		}
+}
