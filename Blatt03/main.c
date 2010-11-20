@@ -72,13 +72,9 @@ int main(int argc, char **argv) {
 		
 		
 		int *gath_image, *gath_counts, *gath_displs;
-		int g_i[rows*columns];
-		int g_c[mpi_processors];
-		int g_d[mpi_processors];
-		
-		gath_image = g_i;
-		gath_counts = g_c;
-		gath_displs = g_d;
+		if(mpi_self == 0) gath_image = (int*)malloc(sizeof(int)*rows*columns);
+		gath_counts = (int*)malloc(sizeof(int)*mpi_processors);
+		gath_displs = (int*)malloc(sizeof(int)*mpi_processors);
 
 		pgm_part info;				
 		int i = 0;
@@ -88,16 +84,17 @@ int main(int argc, char **argv) {
 			gath_displs[i] = columns*(info.offset + info.overlapping_top);
 		}
 		
+		
 		MPI_Gatherv(
 			image+(mypart.overlapping_top*columns),
 			gath_counts[mpi_self],
 			MPI_INT,
 			gath_image, gath_counts, gath_displs, MPI_INT, 0, MPI_COMM_WORLD);
-	
 		
 		if(mpi_self == 0) {
 			ppp_pnm_write(output_path, kind, rows, columns, maxcolor, gath_image);
 		}
+		
 	} else {
 		
 		enum pnm_kind kind;
