@@ -17,7 +17,6 @@ void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 	bool stop = false, edge;
 	
 	if (img1 == NULL || img2 == NULL) {
-		printf("Out of memory.\n");
 		exit(1);
 	}
 	
@@ -65,6 +64,7 @@ void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 				0, MPI_COMM_WORLD, &receive);
 			MPI_Wait(&send, &status);
 			MPI_Wait(&receive, &status);
+			printf("Processor %i shared top with %i",vcd_mpi_self, vcd_mpi_self-1);
         }
         
 		/* Share overlapping at the bottom */
@@ -77,8 +77,8 @@ void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 				1, MPI_COMM_WORLD, &receive);
 			MPI_Wait(&send, &status);
 			MPI_Wait(&receive, &status);
-        }
-        
+			printf("Processor %i shared bottom with %i",vcd_mpi_self, vcd_mpi_self+1);
+        }	
 	}
 	
 	//printf("VCD Iterations: %i", i);
