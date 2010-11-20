@@ -12,6 +12,10 @@
 #define MAX(X,Y) ((X) < (Y) ? (Y) : (X))
 #endif
 
+#ifndef ABS
+#define ABS(x) ((x) < 0 ? (-x) : (x))
+#endif
+
 double seconds(void);
 int *allocints(int size);
 
