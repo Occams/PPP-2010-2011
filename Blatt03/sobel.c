@@ -64,11 +64,7 @@ void sobel_parallel(int *image, int rows, int columns, int c, int maxcolor) {
 		for(x = 0; x < columns; x++) {
 			sx = SOBELX(image,x,y,columns,rows);
 			sy = SOBELY(image,x,y,columns,rows);
-			
-			#pragma omp critical
-			{
-				dest[y*columns+x] = c*sqrt(sx*sx+sy*sy);
-			}
+			dest[y*columns+x] = c*sqrt(sx*sx+sy*sy);
 		}
 	}
 	
