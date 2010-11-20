@@ -72,11 +72,11 @@ int main(int argc, char **argv) {
 		
 		
 		int *gath_image, *gath_counts, *gath_displs;
-		if(mpi_self == 0) gath_image = (int*)malloc(sizeof(int)*rows*columns);
+		if(mpi_self == MASTER) gath_image = (int*)malloc(sizeof(int)*rows*columns);
 		gath_counts = (int*)malloc(sizeof(int)*mpi_processors);
 		gath_displs = (int*)malloc(sizeof(int)*mpi_processors);
 
-		if( (mpi_self == 0 && gath_image == NULL) || gath_counts == NULL || gath_displs == NULL) {
+		if( (mpi_self == MASTER && gath_image == NULL) || gath_counts == NULL || gath_displs == NULL) {
 			printf("Alloc failed... Will exit now...\n");
 			exit(1);
 		}
@@ -94,9 +94,9 @@ int main(int argc, char **argv) {
 			image+(mypart.overlapping_top*columns),
 			gath_counts[mpi_self],
 			MPI_INT,
-			gath_image, gath_counts, gath_displs, MPI_INT, 0, MPI_COMM_WORLD);
+			gath_image, gath_counts, gath_displs, MPI_INT, MASTER, MPI_COMM_WORLD);
 		
-		if(mpi_self == 0) {
+		if(mpi_self == MASTER) {
 			ppp_pnm_write(output_path, kind, rows, columns, maxcolor, gath_image);
 		}
 		

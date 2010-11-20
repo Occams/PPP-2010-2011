@@ -15,7 +15,7 @@
 #define PHI(v) ( CHI(v) * exp( -( CHI(v)* CHI(v) ) / 2.0 ) )
 #define CHI(v) ( (v) / KAPPA ) 
 #define XI(v) ( 1.0 / sqrt(2) * PSI(v) * exp( -( PSI(v) * PSI(v) ) / 2.0 ) )
-#define PSI(v) ( (v) / (sqrt(2) * KAPPA))
+#define PSI(v) ( (v) / (sqrt(2) * KAPPA) )
 
 void vcd_sequential(int *image, int rows, int columns, int maxcolor);
 void vcd_parallel(int *image, int rows, int columns, int maxcolor);

@@ -53,6 +53,8 @@ void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 		tmp = img1;
 		img1 = img2;
 		img2 = tmp;
+		
+		
 	}
 	
 	//printf("VCD Iterations: %i", i);
