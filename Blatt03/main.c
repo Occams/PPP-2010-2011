@@ -67,9 +67,8 @@ int main(int argc, char **argv) {
 		pgm_partinfo(rows, mpi_self, &mypart);
 		
 		
-		if(vcd) vcd_sequential(image, mypart.rows, columns, maxcolor);
+		if(vcd) vcd_parallel(image, mypart.rows, columns, maxcolor);
 		if(sobel) sobel_parallel(image, mypart.rows, columns,sobel_c, maxcolor);
-		
 		
 		int *gath_image, *gath_counts, *gath_displs;
 		if(mpi_self == MASTER) gath_image = (int*)malloc(sizeof(int)*rows*columns);

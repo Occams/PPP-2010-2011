@@ -12,7 +12,9 @@ static void intToDoubleArray_parallel(int *src, double *dest, int length);
 static void doubleToIntArray_parallel(double *src, int *dest, int length);
 
 void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
-	int i,x,y, rows_l = rows, columns_l = columns, idx, length = rows_l*columns_l;
+	MPI_Status status;
+	MPI_Request request;
+	int i,x,y, rows_l = vcd_mpi_self < vcd_mpi_processors-1 ? rows-1 : rows, idx, length = rows*columns;
 	double *img1 = (double *) malloc(length*sizeof(double)), *img2 = (double *) malloc(length*sizeof(double)), *tmp, d;
 	bool stop = false, edge;
 	
@@ -30,11 +32,11 @@ void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 			bool stop_t = true;
 		
 			#pragma omp for private (y,idx,edge,d)
-			for (x = 0; x < rows_l; x++) {
-				for (y = 0; y < columns_l; y++) {
-					idx = x*columns_l+y;
-					edge = x == 0 || y == 0 || x+1 == rows_l || y+1 == columns_l;
-					d = edge ? delta_edge(img1, x, y, rows_l, columns_l) : delta(img1, x, y, rows_l, columns_l);
+			for (x = vcd_mpi_self > 0 ? 1 : 0; x < rows_l; x++) {
+				for (y = 0; y < columns; y++) {
+					idx = x*columns+y;
+					edge = x == 0 || y == 0 || x+1 == rows || y+1 == columns;
+					d = edge ? delta_edge(img1, x, y, rows, columns) : delta(img1, x, y, rows, columns);
 					stop_t = stop_t && ( ABS(d) <= EPSILON || edge);
 					
 					#pragma omp critical
@@ -50,35 +52,32 @@ void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 			}
 		}
 		
+		/* Switch array pointers */
 		tmp = img1;
 		img1 = img2;
 		img2 = tmp;
 		
 		/* Share overlapping at the top */
 		if(vcd_mpi_self > 0) {
-			MPI_Status status;
-			MPI_Request send, receive;
-			MPI_Isend(img1+columns, columns, MPI_INT, vcd_mpi_self - 1,
-                0, MPI_COMM_WORLD, &send);
-			MPI_Irecv(img1, columns, MPI_INT, vcd_mpi_self - 1,
-				0, MPI_COMM_WORLD, &receive);
-			MPI_Wait(&send, &status);
-			MPI_Wait(&receive, &status);
-			printf("Processor %i shared top with %i",vcd_mpi_self, vcd_mpi_self-1);
+			MPI_Isend(img1+columns, columns, MPI_DOUBLE, vcd_mpi_self - 1,
+                0, MPI_COMM_WORLD, &request);
         }
+		
+		if (vcd_mpi_self < vcd_mpi_processors-1) {
+			MPI_Recv(img1+(rows-1)*columns, columns, MPI_DOUBLE, vcd_mpi_self + 1,
+			0, MPI_COMM_WORLD, &status);
+		}
         
 		/* Share overlapping at the bottom */
 		if(vcd_mpi_self < vcd_mpi_processors-1) {
-			MPI_Status status;
-			MPI_Request send, receive;
-			MPI_Isend(img1+(columns-2)*rows, columns, MPI_INT, vcd_mpi_self + 1,
-                1, MPI_COMM_WORLD, &send);
-			MPI_Irecv(img1+(columns-1)*rows, columns, MPI_INT, vcd_mpi_self + 1,
-				1, MPI_COMM_WORLD, &receive);
-			MPI_Wait(&send, &status);
-			MPI_Wait(&receive, &status);
-			printf("Processor %i shared bottom with %i",vcd_mpi_self, vcd_mpi_self+1);
-        }	
+			MPI_Isend(img1+(rows-2)*columns, columns, MPI_DOUBLE, vcd_mpi_self + 1,
+                1, MPI_COMM_WORLD, &request);
+        }
+		
+		if(vcd_mpi_self > 0) {
+			MPI_Recv(img1, columns, MPI_DOUBLE, vcd_mpi_self - 1,
+				1, MPI_COMM_WORLD, &status);
+		}
 	}
 	
 	//printf("VCD Iterations: %i", i);

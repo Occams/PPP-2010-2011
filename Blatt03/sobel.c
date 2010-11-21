@@ -35,6 +35,7 @@ void sobel_seq(int *image, int rows, int columns, int c, int maxcolor) {
 	for(y = 0; y < rows; y++) {
 		for(x = 0; x < columns; x++) {
 			image[y*columns+x] = MIN(dest[y*columns+x], maxcolor);
+			image[y*columns+x] = MAX(dest[y*columns+x], 0);
 		}
 	}
 }
