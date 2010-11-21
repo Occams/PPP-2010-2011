@@ -16,7 +16,7 @@ void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 	MPI_Request request;
 	int i,x,y, rows_l = vcd_mpi_self < vcd_mpi_processors-1 ? rows-1 : rows, idx, length = rows*columns;
 	double *img1 = (double *) malloc(length*sizeof(double)), *img2 = (double *) malloc(length*sizeof(double)), *tmp, d;
-	bool stop = false, edge;
+	int stop = false, edge;
 	
 	if (img1 == NULL || img2 == NULL) {
 		exit(1);
@@ -29,7 +29,7 @@ void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 		
 		#pragma omp parallel 
 		{
-			bool stop_t = true;
+			int stop_t = true;
 		
 			#pragma omp for private (y,idx,edge,d)
 			for (x = vcd_mpi_self > 0 ? 1 : 0; x < rows_l; x++) {
@@ -38,11 +38,7 @@ void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 					edge = x == 0 || y == 0 || x+1 == rows || y+1 == columns;
 					d = edge ? delta_edge(img1, x, y, rows, columns) : delta(img1, x, y, rows, columns);
 					stop_t = stop_t && ( ABS(d) <= EPSILON || edge);
-					
-					#pragma omp critical
-					{
-						img2[idx] = img1[idx] + KAPPA * DELTA_T * d;
-					}
+					img2[idx] = img1[idx] + KAPPA * DELTA_T * d;
 				}
 			}
 			
@@ -56,6 +52,9 @@ void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 		tmp = img1;
 		img1 = img2;
 		img2 = tmp;
+		
+		/* Update stop condition */
+		MPI_Allreduce(&stop,&stop,1,MPI_INT,MPI_MIN,MPI_COMM_WORLD);
 		
 		/* Share overlapping at the top */
 		if(vcd_mpi_self > 0) {
