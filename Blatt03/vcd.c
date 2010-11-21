@@ -29,7 +29,7 @@ void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 		#pragma omp parallel
 		{
 			int stop_t = true;
-		
+			
 			#pragma omp for private (y,idx,edge,d) firstprivate(columns,rows_l,rows,img1,img2) nowait
 			for (x = vcd_mpi_self > 0 ? 1 : 0; x < rows_l; x++) {
 				for (y = 0; y < columns; y++) {
@@ -58,29 +58,28 @@ void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 		/* Share overlapping at the top */
 		if(vcd_mpi_self > 0) {
 			MPI_Isend(img1+columns, columns, MPI_DOUBLE, vcd_mpi_self - 1,
-                0, MPI_COMM_WORLD, &request);
-        }
+			0, MPI_COMM_WORLD, &request);
+		}
 		
 		if (vcd_mpi_self < vcd_mpi_processors-1) {
 			MPI_Recv(img1+(rows-1)*columns, columns, MPI_DOUBLE, vcd_mpi_self + 1,
 			0, MPI_COMM_WORLD, &status);
 		}
-        
+		
 		/* Share overlapping at the bottom */
 		if(vcd_mpi_self < vcd_mpi_processors-1) {
 			MPI_Isend(img1+(rows-2)*columns, columns, MPI_DOUBLE, vcd_mpi_self + 1,
-                1, MPI_COMM_WORLD, &request);
-        }
+			1, MPI_COMM_WORLD, &request);
+		}
 		
 		if(vcd_mpi_self > 0) {
 			MPI_Recv(img1, columns, MPI_DOUBLE, vcd_mpi_self - 1,
-				1, MPI_COMM_WORLD, &status);
+			1, MPI_COMM_WORLD, &status);
 		}
 	}
 	
 	//printf("VCD Iterations: %i", i);
-	
-	renormalize_parallel(img1, length, maxcolor);
+	renormalize(img1, length, maxcolor); //parallel failed
 	doubleToIntArray_parallel(img1, image, length);
 	free(img1);
 	free(img2);
@@ -161,13 +160,13 @@ static double delta(double *i, int x, int y, int rows, int cols) {
 	double center = i[x*cols + y];
 	
 	return PHI(i[(x+1)*cols + y] - center) 
-		- PHI(center - i[(x-1)*cols + y])
-		+ PHI(i[x*cols + y + 1] - center)
-		- PHI(center - i[x*cols + y - 1])
-		+ XI(i[(x+1)*cols + y + 1] - center)
-		- XI(center - i[(x-1)*cols + y - 1])
-		+ XI(i[(x-1)*cols + y + 1] - center)
-		- XI(center - i[(x+1)*cols + y - 1]);
+	- PHI(center - i[(x-1)*cols + y])
+	+ PHI(i[x*cols + y + 1] - center)
+	- PHI(center - i[x*cols + y - 1])
+	+ XI(i[(x+1)*cols + y + 1] - center)
+	- XI(center - i[(x-1)*cols + y - 1])
+	+ XI(i[(x-1)*cols + y + 1] - center)
+	- XI(center - i[(x+1)*cols + y - 1]);
 
 }
 
@@ -175,13 +174,13 @@ static double delta_edge(double *i, int x, int y, int rows, int cols) {
 	double center = i[x*cols + y];
 	
 	return PHI(s(i,x+1,y,rows,cols) - center) 
-		- PHI(center - s(i,x-1,y,rows,cols))
-		+ PHI(s(i,x,y+1,rows,cols) - center)
-		- PHI(center - s(i,x,y-1,rows,cols))
-		+ XI(s(i,x+1,y+1,rows,cols) - center)
-		- XI(center - s(i,x-1,y-1,rows,cols))
-		+ XI(s(i,x-1,y+1,rows,cols) - center)
-		- XI(center - s(i,x+1,y-1,rows,cols));
+	- PHI(center - s(i,x-1,y,rows,cols))
+	+ PHI(s(i,x,y+1,rows,cols) - center)
+	- PHI(center - s(i,x,y-1,rows,cols))
+	+ XI(s(i,x+1,y+1,rows,cols) - center)
+	- XI(center - s(i,x-1,y-1,rows,cols))
+	+ XI(s(i,x-1,y+1,rows,cols) - center)
+	- XI(center - s(i,x+1,y-1,rows,cols));
 }
 
 static double s(double *img, int x, int y, int rows, int cols) {

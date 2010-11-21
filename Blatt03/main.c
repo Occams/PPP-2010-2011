@@ -24,10 +24,12 @@ int *mpi_read_part_sobel(enum pnm_kind kind, int rows, int columns, int *offset,
 void printhelp();
 
 int main(int argc, char **argv) {
-	int option;
+	int x, option, *gath_image = NULL, *gath_counts = NULL, *gath_displs = NULL,
+	sobel_c = 1, rows,columns,maxcolor,*image = NULL;
 	char *input_path = "input.pgm", *output_path = "output.pgm";
 	bool sobel = true, vcd = false, parallel = false;
-	int sobel_c = 1;
+	enum pnm_kind kind;
+	pgm_part mypart, info;
 	
 	/* Read cmdline params */
 	while ((option = getopt(argc,argv,"s:v:p:i:o:c:h")) != -1) {
@@ -53,24 +55,17 @@ int main(int argc, char **argv) {
 	if (parallel) {
 		if(vcd) vcd_mpi_init(mpi_self, mpi_processors);
 		if(sobel) sobel_mpi_init(mpi_self, mpi_processors);
+		
 		pgm_distribute_init(mpi_processors);
-		
-		enum pnm_kind kind;
-		int rows, columns, maxcolor;
-		
-		int* image;
 		
 		if(vcd) image = ppp_pnm_read_part(input_path, &kind, &rows, &columns, &maxcolor, vcd_mpi_read_part);
 		if(sobel) image = ppp_pnm_read_part(input_path, &kind, &rows, &columns, &maxcolor, sobel_mpi_read_part);
 		
-		pgm_part mypart;
 		pgm_partinfo(rows, mpi_self, &mypart);
-		
 		
 		if(vcd) vcd_parallel(image, mypart.rows, columns, maxcolor);
 		if(sobel) sobel_parallel(image, mypart.rows, columns,sobel_c, maxcolor);
 		
-		int *gath_image, *gath_counts, *gath_displs;
 		if(mpi_self == MASTER) gath_image = (int*)malloc(sizeof(int)*rows*columns);
 		gath_counts = (int*)malloc(sizeof(int)*mpi_processors);
 		gath_displs = (int*)malloc(sizeof(int)*mpi_processors);
@@ -79,31 +74,26 @@ int main(int argc, char **argv) {
 			printf("Alloc failed... Will exit now...\n");
 			exit(1);
 		}
-
-		pgm_part info;				
-		int i = 0;
-		for(i = 0; i < mpi_processors; i++) {
-			pgm_partinfo(rows, i, &info);
-			gath_counts[i] = columns*(info.rows - info.overlapping_top - info.overlapping_bot);
-			gath_displs[i] = columns*(info.offset + info.overlapping_top);
+				
+		
+		for(x = 0; x < mpi_processors; x++) {
+			pgm_partinfo(rows, x, &info);
+			gath_counts[x] = columns*(info.rows - info.overlapping_top - info.overlapping_bot);
+			gath_displs[x] = columns*(info.offset + info.overlapping_top);
 		}
 		
-		
 		MPI_Gatherv(
-			image+(mypart.overlapping_top*columns),
-			gath_counts[mpi_self],
-			MPI_INT,
-			gath_image, gath_counts, gath_displs, MPI_INT, MASTER, MPI_COMM_WORLD);
+		image+(mypart.overlapping_top*columns),
+		gath_counts[mpi_self],
+		MPI_INT,
+		gath_image, gath_counts, gath_displs, MPI_INT, MASTER, MPI_COMM_WORLD);
 		
 		if(mpi_self == MASTER) {
 			ppp_pnm_write(output_path, kind, rows, columns, maxcolor, gath_image);
 		}
 		
 	} else {
-		
-		enum pnm_kind kind;
-		int rows,columns,maxcolor;
-		int *image = ppp_pnm_read(input_path, &kind, &rows, &columns, &maxcolor);
+		image = ppp_pnm_read(input_path, &kind, &rows, &columns, &maxcolor);
 		
 		if (vcd) {
 			vcd_sequential(image,rows,columns,maxcolor);

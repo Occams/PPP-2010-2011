@@ -25,8 +25,8 @@ void renormalize(double *i, int length, int maxcolor) {
 	double *img = i;
 	
 	for (x = 0; x < length; x++) {
-			img[x] = MIN(img[x], maxcolor);
-			img[x] = MAX(img[x], 0);
+		img[x] = MIN(img[x], maxcolor);
+		img[x] = MAX(img[x], 0);
 	}
 }
 
@@ -36,7 +36,7 @@ void renormalize_parallel(double *i, int length, int maxcolor) {
 	
 	#pragma omp parallel for
 	for (x = 0; x < length; x++) {
-			img[x] = MIN(img[x], maxcolor);
-			img[x] = MAX(img[x], 0);
+		img[x] = MIN(img[x], maxcolor);
+		img[x] = MAX(img[x], 0);
 	}
 }
