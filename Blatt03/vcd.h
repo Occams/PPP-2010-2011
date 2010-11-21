@@ -7,6 +7,8 @@
 #include <stdio.h>
 #include "pgm_distribute.h"
 #include <ppp_pnm.h>
+#include <mpi.h>
+#include "omp.h"
 
 #define N 40
 #define EPSILON 0.005

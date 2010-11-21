@@ -1,6 +1,7 @@
 #ifndef PGM_DISTRIBUTE_H_INCLUDED
 #define PGM_DISTRIBUTE_H_INCLUDED
 #include "common.h"
+#include "omp.h"
 
 typedef struct {
 	int rows; /* Real amount of rows of this part */

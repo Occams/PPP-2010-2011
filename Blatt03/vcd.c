@@ -1,5 +1,4 @@
 #include <vcd.h>
-#include <mpi.h>
 
 static int vcd_mpi_self = 0, vcd_mpi_processors = 1;
 
@@ -81,7 +80,7 @@ void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 	
 	//printf("VCD Iterations: %i", i);
 	
-	//renormalize_parallel(img1, length, maxcolor);
+	renormalize_parallel(img1, length, maxcolor);
 	doubleToIntArray_parallel(img1, image, length);
 	free(img1);
 	free(img2);
