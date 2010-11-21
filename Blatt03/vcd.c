@@ -27,11 +27,11 @@ void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 	for (i = 0; i < N && !stop; i++) {
 		stop = true;
 		
-		#pragma omp parallel 
+		#pragma omp parallel
 		{
 			int stop_t = true;
 		
-			#pragma omp for private (y,idx,edge,d)
+			#pragma omp for private (y,idx,edge,d) firstprivate(columns,rows_l,rows,img1,img2) nowait
 			for (x = vcd_mpi_self > 0 ? 1 : 0; x < rows_l; x++) {
 				for (y = 0; y < columns; y++) {
 					idx = x*columns+y;
@@ -81,7 +81,7 @@ void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 	
 	//printf("VCD Iterations: %i", i);
 	
-	renormalize_parallel(img1, length, maxcolor);
+	//renormalize_parallel(img1, length, maxcolor);
 	doubleToIntArray_parallel(img1, image, length);
 	free(img1);
 	free(img2);
