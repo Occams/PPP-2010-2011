@@ -1,7 +1,7 @@
 #include <vcd.h>
 
 static int vcd_mpi_self = 0, vcd_mpi_processors = 1;
-int stop = false;
+int vcd_stop = false;
 
 static double delta_edge(double *i, int x, int y, int rows, int cols);
 static double delta(double *i, int x, int y, int rows, int cols);
@@ -20,16 +20,16 @@ void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 	
 	intToDoubleArray_parallel(image, img1_p, length);
 	
-	for (i = 0; i < N && !stop; i++) {
-		stop = true;
+	for (i = 0; i < N && !vcd_stop; i++) {
+		vcd_stop = true;
 		
-		#pragma omp parallel for private (y,idx,edge,d) reduction (&& : stop)
+		#pragma omp parallel for private (y,idx,edge,d) reduction (&& : vcd_stop)
 		for (x = vcd_mpi_self > 0 ? 1 : 0; x < rows_l; x++) {
 			for (y = 0; y < columns; y++) {
 				idx = x*columns+y;
 				edge = x == 0 || y == 0 || x+1 == rows || y+1 == columns;
-				d = edge ? delta_edge(img1, x, y, rows, columns) : delta(img1, x, y, rows, columns);
-				stop = stop && (edge || ABS(d) <= EPSILON);
+				d = edge ? delta_edge(img1_p, x, y, rows, columns) : delta(img1_p, x, y, rows, columns);
+				vcd_stop = vcd_stop && (edge || ABS(d) <= EPSILON);
 				img2_p[idx] = img1_p[idx] + KAPPA * DELTA_T * d;
 			}
 		}
@@ -41,7 +41,7 @@ void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 	img2_p = tmp;
 	
 	/* Update stop condition */
-	MPI_Allreduce(&stop,&stop,1,MPI_INT,MPI_MIN,MPI_COMM_WORLD);
+	MPI_Allreduce(&vcd_stop,&vcd_stop,1,MPI_INT,MPI_MIN,MPI_COMM_WORLD);
 	
 	/* Share overlapping at the top */
 	if(vcd_mpi_self > 0) {
@@ -72,19 +72,19 @@ void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 void vcd_sequential(int *image, int rows, int columns, int maxcolor) {
 	int i, x, y, idx, length = rows*columns;
 	double img1[length], img2[length], *tmp, *img1_p = img1, *img2_p = img2, d;
-	bool stop = false, edge;
+	bool edge;
 	
 	intToDoubleArray(image, img1_p, length);
 	
-	for (i = 0; i < N && !stop; i++) {
-		stop = true;
+	for (i = 0; i < N && !vcd_stop; i++) {
+		vcd_stop = true;
 		
 		for (x = 0; x < rows; x++) {
 			for (y = 0; y < columns; y++) {
 				idx = x*columns+y;
 				edge = x == 0 || y == 0 || x+1 == rows || y+1 == columns;
 				d = edge ? delta_edge(img1_p, x, y, rows, columns) : delta(img1_p, x, y, rows, columns);
-				stop = stop && (edge || ABS(d) <= EPSILON);	
+				vcd_stop = vcd_stop && (edge || ABS(d) <= EPSILON);	
 				img2_p[idx] = img1_p[idx] + KAPPA * DELTA_T * d;
 			}
 		}

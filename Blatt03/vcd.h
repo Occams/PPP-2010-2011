@@ -11,7 +11,7 @@
 #include "omp.h"
 
 #define N 40
-#define EPSILON 4
+#define EPSILON 3
 #define KAPPA 30.0
 #define DELTA_T 0.1
 #define PHI(v) ( CHI(v) * exp( -( CHI(v)* CHI(v) ) / 2.0 ) )
