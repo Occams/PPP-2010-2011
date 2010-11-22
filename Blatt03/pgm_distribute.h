@@ -12,7 +12,7 @@ typedef struct {
 
 void pgm_distribute_init(int processors);
 void pgm_partinfo(int rows, int proc, pgm_part *info);
-void renormalize(double *i, int length, int maxcolor);
-void renormalize_parallel(double *i, int length, int maxcolor);
+void pgm_renormalize(int *i, int length, int maxcolor);
+void pgm_renormalize_parallel(int *i, int length, int maxcolor);
 
 #endif

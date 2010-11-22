@@ -20,9 +20,9 @@ void pgm_partinfo(int rows, int proc, pgm_part *info) {
 	info->overlapping_bot = (proc == pgm_procs - 1) ? 0 : 1;
 }
 
-void renormalize(double *i, int length, int maxcolor) {
+void pgm_renormalize(int *i, int length, int maxcolor) {
 	int x;
-	double *img = i;
+	int *img = i;
 	
 	for (x = 0; x < length; x++) {
 		img[x] = MIN(img[x], maxcolor);
@@ -30,13 +30,13 @@ void renormalize(double *i, int length, int maxcolor) {
 	}
 }
 
-void renormalize_parallel(double *i, int length, int maxcolor) {
+void pgm_renormalize_parallel(int *i, int length, int maxcolor) {
 	int x;
-	double *img = i;
+	//int img[length];
 	
 	#pragma omp parallel for
 	for (x = 0; x < length; x++) {
-		img[x] = MIN(img[x], maxcolor);
-		img[x] = MAX(img[x], 0);
+		//img[x] = MIN(img[x], maxcolor);
+		//img[x] = MAX(img[x], 0);
 	}
 }
