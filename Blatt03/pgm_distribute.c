@@ -10,6 +10,7 @@ void pgm_distribute_init(int processors) {
 void pgm_partinfo(int rows, int proc, pgm_part *info) {
 	/* Amount of rows */
 	info->rows = (proc == 0 || proc == pgm_procs-1) ? rows/pgm_procs + 1 : rows/pgm_procs+2;
+	info->rows = pgm_procs-1 == 0 ? info->rows -1 : info->rows;
 	if(proc == pgm_procs-1) info->rows += rows%pgm_procs;
 	
 	/* Offset */
@@ -22,21 +23,19 @@ void pgm_partinfo(int rows, int proc, pgm_part *info) {
 
 void pgm_renormalize(int *i, int length, int maxcolor) {
 	int x;
-	int *img = i;
 	
 	for (x = 0; x < length; x++) {
-		img[x] = MIN(img[x], maxcolor);
-		img[x] = MAX(img[x], 0);
+		i[x] = MIN(i[x], maxcolor);
+		i[x] = MAX(i[x], 0);
 	}
 }
 
 void pgm_renormalize_parallel(int *i, int length, int maxcolor) {
 	int x;
-	//int img[length];
 	
 	#pragma omp parallel for
 	for (x = 0; x < length; x++) {
-		//img[x] = MIN(img[x], maxcolor);
-		//img[x] = MAX(img[x], 0);
+		i[x] = MIN(i[x], maxcolor);
+		i[x] = MAX(i[x], 0);
 	}
 }

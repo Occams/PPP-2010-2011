@@ -33,40 +33,40 @@ void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 				img2_p[idx] = img1_p[idx] + KAPPA * DELTA_T * d;
 			}
 		}
+		
+		/* Switch array pointers */
+		tmp = img1_p;
+		img1_p = img2_p;
+		img2_p = tmp;
+
+		/* Update stop condition */
+		MPI_Allreduce(&vcd_stop,&vcd_stop,1, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
+		
+		/* Share overlapping at the top */
+		if(vcd_mpi_self > 0) {
+			MPI_Isend(img1_p+columns, columns, MPI_DOUBLE, vcd_mpi_self - 1,
+			0, MPI_COMM_WORLD, &request);
+		}
+		
+		if (vcd_mpi_self < vcd_mpi_processors-1) {
+			MPI_Recv(img1_p+(rows-1)*columns, columns, MPI_DOUBLE, vcd_mpi_self + 1,
+			0, MPI_COMM_WORLD, &status);
+		}
+		
+		/* Share overlapping at the bottom */
+		if(vcd_mpi_self < vcd_mpi_processors-1) {
+			MPI_Isend(img1_p+(rows-2)*columns, columns, MPI_DOUBLE, vcd_mpi_self + 1,
+			1, MPI_COMM_WORLD, &request);
+		}
+		
+		if(vcd_mpi_self > 0) {
+			MPI_Recv(img1_p, columns, MPI_DOUBLE, vcd_mpi_self - 1,
+			1, MPI_COMM_WORLD, &status);
+		}
 	}
 	
-	/* Switch array pointers */
-	tmp = img1_p;
-	img1_p = img2_p;
-	img2_p = tmp;
-	
-	/* Update stop condition */
-	MPI_Allreduce(&vcd_stop,&vcd_stop,1,MPI_INT,MPI_MIN,MPI_COMM_WORLD);
-	
-	/* Share overlapping at the top */
-	if(vcd_mpi_self > 0) {
-		MPI_Isend(img1_p+columns, columns, MPI_DOUBLE, vcd_mpi_self - 1,
-		0, MPI_COMM_WORLD, &request);
-	}
-	
-	if (vcd_mpi_self < vcd_mpi_processors-1) {
-		MPI_Recv(img1_p+(rows-1)*columns, columns, MPI_DOUBLE, vcd_mpi_self + 1,
-		0, MPI_COMM_WORLD, &status);
-	}
-	
-	/* Share overlapping at the bottom */
-	if(vcd_mpi_self < vcd_mpi_processors-1) {
-		MPI_Isend(img1_p+(rows-2)*columns, columns, MPI_DOUBLE, vcd_mpi_self + 1,
-		1, MPI_COMM_WORLD, &request);
-	}
-	
-	if(vcd_mpi_self > 0) {
-		MPI_Recv(img1_p, columns, MPI_DOUBLE, vcd_mpi_self - 1,
-		1, MPI_COMM_WORLD, &status);
-	}
-	
-	printf("VCD Iterations: %i\n", i);
 	doubleToIntArray_parallel(img1_p, image, length);
+	pgm_renormalize_parallel(image, length, maxcolor);
 }
 
 void vcd_sequential(int *image, int rows, int columns, int maxcolor) {
@@ -94,29 +94,25 @@ void vcd_sequential(int *image, int rows, int columns, int maxcolor) {
 		img2_p = tmp;
 	}
 	
-	printf("VCD Iterations: %i\n", i);
-	
 	doubleToIntArray(img1_p, image, length);
 	pgm_renormalize(image, length, maxcolor);
 }
 
 static void intToDoubleArray(int *src, double *dest, int length) {
 	int x;
-	//double start = seconds();
+	
 	for (x = 0; x < length; x++) {
 		dest[x] = (int) src[x];
 	}
-	//printf("Intodouble seq: %f\n",seconds() - start);
 }
 
 static void intToDoubleArray_parallel(int *src, double *dest, int length) {
 	int x;
-	//double start = seconds();
+	
 	#pragma omp parallel for
 	for (x = 0; x < length; x++) {
 		dest[x] = (int) src[x];
 	}
-	//printf("Intodouble parallel: %f\n",seconds() - start);
 }
 
 static void doubleToIntArray(double *src, int *dest, int length) {
