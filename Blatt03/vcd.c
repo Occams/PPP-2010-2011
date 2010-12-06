@@ -13,7 +13,7 @@ static void doubleToIntArray_parallel(double *src, int *dest, int length, int ma
 
 void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 	MPI_Request send_top, send_bottom, recv_top, recv_bottom;
-	MPI_Status st1, st2;
+	MPI_Status st1, st2, st3, st4;
 	int i,x,y, rows_l = vcd_mpi_self < vcd_mpi_processors-1 ? rows-1 : rows, idx, length = rows*columns;
 	double img1[length], img2[length], *tmp, *img1_p = img1, *img2_p = img2, d;
 	bool edge;
@@ -61,6 +61,10 @@ void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 			MPI_Wait(&recv_top, &st1);
 		}
 		
+		if(vcd_mpi_self > 0) {
+			MPI_Wait(&send_top, &st2);
+		}
+		
 		
 		/* Share overlapping at the bottom */
 		if(vcd_mpi_self < vcd_mpi_processors-1) {
@@ -69,7 +73,11 @@ void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 		
 		if(vcd_mpi_self > 0) {
 			MPI_Start(&recv_bottom);
-			MPI_Wait(&recv_bottom, &st2);
+			MPI_Wait(&recv_bottom, &st3);
+		}
+		
+		if(vcd_mpi_self < vcd_mpi_processors-1) {
+			MPI_Wait(&send_bottom, &st4);
 		}
 		
 		
