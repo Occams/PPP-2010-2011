@@ -7,9 +7,9 @@ static double delta_edge(double *i, int x, int y, int rows, int cols);
 static double delta(double *i, int x, int y, int rows, int cols);
 static double s(double *img, int x, int y, int rows, int cols);
 static void intToDoubleArray(int *src, double *dest, int length);
-static void doubleToIntArray(double *src, int *dest, int length);
+static void doubleToIntArray(double *src, int *dest, int length, int maxcolor);
 static void intToDoubleArray_parallel(int *src, double *dest, int length);
-static void doubleToIntArray_parallel(double *src, int *dest, int length);
+static void doubleToIntArray_parallel(double *src, int *dest, int length, int maxcolor);
 
 void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 	MPI_Status status;
@@ -24,7 +24,7 @@ void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 		vcd_stop = true;
 		
 		#pragma omp parallel for private (y,idx,edge,d) reduction (&& : vcd_stop)
-		for (x = vcd_mpi_self > 0 ? 1 : 0; x < rows_l; x++) {
+		for (x = 0; x < rows_l; x++) {
 			for (y = 0; y < columns; y++) {
 				idx = x*columns+y;
 				edge = x == 0 || y == 0 || x+1 == rows || y+1 == columns;
@@ -63,10 +63,11 @@ void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 			MPI_Recv(img1_p, columns, MPI_DOUBLE, vcd_mpi_self - 1,
 			1, MPI_COMM_WORLD, &status);
 		}
+		
+		MPI_Barrier(MPI_COMM_WORLD);
 	}
 	
-	doubleToIntArray_parallel(img1_p, image, length);
-	pgm_renormalize_parallel(image, length, maxcolor);
+	doubleToIntArray_parallel(img1_p, image, length, maxcolor);
 }
 
 void vcd_sequential(int *image, int rows, int columns, int maxcolor) {
@@ -94,8 +95,7 @@ void vcd_sequential(int *image, int rows, int columns, int maxcolor) {
 		img2_p = tmp;
 	}
 	
-	doubleToIntArray(img1_p, image, length);
-	pgm_renormalize(image, length, maxcolor);
+	doubleToIntArray(img1_p, image, length, maxcolor);
 }
 
 static void intToDoubleArray(int *src, double *dest, int length) {
@@ -111,24 +111,24 @@ static void intToDoubleArray_parallel(int *src, double *dest, int length) {
 	
 	#pragma omp parallel for
 	for (x = 0; x < length; x++) {
-		dest[x] = (int) src[x];
+		dest[x] = src[x];
 	}
 }
 
-static void doubleToIntArray(double *src, int *dest, int length) {
+static void doubleToIntArray(double *src, int *dest, int length, int maxcolor) {
 	int x;
 	
 	for (x = 0; x < length; x++) {
-		dest[x] = (double) src[x]; 
+		dest[x] = src[x] < 0 ? 0 : (int) MIN(src[x],maxcolor); 
 	}
 }
 
-static void doubleToIntArray_parallel(double *src, int *dest, int length) {
+static void doubleToIntArray_parallel(double *src, int *dest, int length, int maxcolor) {
 	int x;
 	
 	#pragma omp parallel for
 	for (x = 0; x < length; x++) {
-		dest[x] = (double) src[x]; 
+		dest[x] = src[x] < 0 ? 0 : (int) MIN(src[x], maxcolor); 
 	}
 }
 

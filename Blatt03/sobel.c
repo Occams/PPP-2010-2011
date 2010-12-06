@@ -21,22 +21,20 @@
 static int sobel_mpi_self, sobel_mpi_processors;
 
 void sobel_seq(int *image, int rows, int columns, int c, int maxcolor) {
-	int x,y,sx,sy;
+	int x,y,sx,sy,pixel;
 	int dest[rows*columns];
 
 	for(y = 0; y < rows; y++) {
 		for(x = 0; x < columns; x++) {
 			sx = SOBELX(image,x,y,columns,rows);
 			sy = SOBELY(image,x,y,columns,rows);
-			dest[y*columns+x] = c*sqrt(sx*sx+sy*sy);
+			pixel = c*sqrt(sx*sx+sy*sy);
+			dest[y*columns+x] = pixel < 0 ? 0 : MIN(pixel, maxcolor);
 		}
 	}
 	
-	for(y = 0; y < rows; y++) {
-		for(x = 0; x < columns; x++) {
-			image[y*columns+x] = MIN(dest[y*columns+x], maxcolor);
-			image[y*columns+x] = MAX(dest[y*columns+x], 0);
-		}
+	for(y = 0; y < rows*columns; y++) {
+		image[y] = dest[y];
 	}
 }
 
@@ -44,7 +42,6 @@ void sobel_mpi_init(int mpi_self, int mpi_processors) {
 	sobel_mpi_self = mpi_self;
 	sobel_mpi_processors = mpi_processors;
 }
-
 
 int *sobel_mpi_read_part(enum pnm_kind kind, int rows, int columns, int *offset, int *length) {
 	pgm_part info;
@@ -57,25 +54,22 @@ int *sobel_mpi_read_part(enum pnm_kind kind, int rows, int columns, int *offset,
 }
 
 void sobel_parallel(int *image, int rows, int columns, int c, int maxcolor) {
-	int x,y,sx,sy,idx;
+	int x,y,sx,sy,pixel;
 	int dest[rows*columns];
-
-	#pragma omp parallel for private(x)
-	for(y = 0; y < rows; y++) {
+	
+	#pragma omp parallel for private(x,pixel)
+	for(y = sobel_mpi_self > 0 ? 1 : 0; y < rows; y++) {
 		for(x = 0; x < columns; x++) {
 			sx = SOBELX(image,x,y,columns,rows);
 			sy = SOBELY(image,x,y,columns,rows);
-			dest[y*columns+x] = c*sqrt(sx*sx+sy*sy);
+			pixel = c*sqrt(sx*sx+sy*sy);
+			dest[y*columns+x] = pixel < 0 ? 0 : MIN(pixel, maxcolor);
 		}
 	}
 	
-	
-	#pragma omp parallel for private(x,idx)
-	for(y = 0; y < rows; y++) {
-		for(x = 0; x < columns; x++) {
-			idx = y*columns+x;
-			image[idx] = MIN(dest[idx], maxcolor);
-			image[idx] = MAX(dest[idx], 0);
-		}
+	#pragma omp parallel for
+	for(y = 0; y < rows*columns; y++) {
+		image[y] = dest[y];
 	}
+	
 }

@@ -61,10 +61,16 @@ int main(int argc, char **argv) {
 		if(vcd) image = ppp_pnm_read_part(input_path, &kind, &rows, &columns, &maxcolor, vcd_mpi_read_part);
 		if(sobel) image = ppp_pnm_read_part(input_path, &kind, &rows, &columns, &maxcolor, sobel_mpi_read_part);
 		
+		if (image == NULL) {
+			printf("Could not read image from file %s\n", input_path);
+			MPI_Finalize();
+			return 1;
+		}
+		
 		pgm_partinfo(rows, mpi_self, &mypart);
 		
 		if(vcd) vcd_parallel(image, mypart.rows, columns, maxcolor);
-		if(sobel) sobel_parallel(image, mypart.rows, columns,sobel_c, maxcolor);
+		if(sobel) sobel_parallel(image, mypart.rows, columns, sobel_c, maxcolor);
 		
 		
 		if(mpi_self == MASTER) gath_image = (int*)malloc(sizeof(int)*rows*columns);
@@ -83,6 +89,8 @@ int main(int argc, char **argv) {
 			pgm_partinfo(rows, x, &info);
 			gath_counts[x] = columns*(info.rows - info.overlapping_top - info.overlapping_bot);
 			gath_displs[x] = columns*(info.offset + info.overlapping_top);
+			//m_printf("gath_counts[%i] = %i\n",x, gath_counts[x]);
+			//m_printf("gath_displs[%i] = %i\n",x, gath_displs[x]);
 		}
 		
 		MPI_Gatherv(
@@ -91,15 +99,23 @@ int main(int argc, char **argv) {
 		MPI_INT,
 		gath_image, gath_counts, gath_displs, MPI_INT, MASTER, MPI_COMM_WORLD);
 		
-		if(mpi_self == MASTER) {
-			ppp_pnm_write(output_path, kind, rows, columns, maxcolor, gath_image);
+		if(mpi_self == 0) {
+			if (ppp_pnm_write(output_path, kind, rows, columns, maxcolor, gath_image) != 0)
+				m_printf("Could not write image to file %s\n", output_path);
 		}
 		
+		free(image);
 		free(gath_image);
 		free(gath_counts);
 		free(gath_displs);
 	} else {
 		image = ppp_pnm_read(input_path, &kind, &rows, &columns, &maxcolor);
+		
+		if (image == NULL) {
+			m_printf("Could not read image from file %s\n",input_path);
+			MPI_Finalize();
+			return 1;
+		}
 		
 		if (vcd) {
 			vcd_sequential(image,rows,columns,maxcolor);
@@ -109,7 +125,9 @@ int main(int argc, char **argv) {
 			sobel_seq(image,rows,columns,sobel_c, maxcolor);
 		}
 		
-		ppp_pnm_write(output_path, kind, rows, columns, maxcolor, image);
+		if (ppp_pnm_write(output_path, kind, rows, columns, maxcolor, image) != 0)
+		m_printf("Could not write image to file %s\n",output_path);
+		
 		free(image);
 	}
 	
