@@ -62,10 +62,8 @@ void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 		if(vcd_mpi_self > 0) {
 			if(img1_p == img1) {
 				MPI_Start(&send_top1);
-				MPI_Wait(&send_top1, &st2);
 			} else {
 				MPI_Start(&send_top2);
-				MPI_Wait(&send_top2, &st2);
 			}
 		}
 		
@@ -79,15 +77,21 @@ void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 			}
 		}
 		
+		if(vcd_mpi_self > 0) {
+			if(img1_p == img1) {
+				MPI_Wait(&send_top1, &st2);
+			} else {
+				MPI_Wait(&send_top2, &st2);
+			}
+		}
+		
 		
 		/* Share overlapping at the bottom */
 		if(vcd_mpi_self < vcd_mpi_processors-1) {
 			if(img1_p == img1) {
 				MPI_Start(&send_bottom1);
-				MPI_Wait(&send_bottom1, &st4);
 			} else {
 				MPI_Start(&send_bottom2);
-				MPI_Wait(&send_bottom2, &st4);
 			}
 		}
 		
@@ -98,6 +102,14 @@ void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 			} else {
 				MPI_Start(&recv_bottom2);
 				MPI_Wait(&recv_bottom2, &st3);
+			}
+		}
+		
+		if(vcd_mpi_self < vcd_mpi_processors-1) {
+			if(img1_p == img1) {
+				MPI_Wait(&send_bottom1, &st4);
+			} else {
+				MPI_Wait(&send_bottom2, &st4);
 			}
 		}
 		
