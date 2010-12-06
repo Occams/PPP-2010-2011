@@ -12,7 +12,8 @@ static void intToDoubleArray_parallel(int *src, double *dest, int length);
 static void doubleToIntArray_parallel(double *src, int *dest, int length, int maxcolor);
 
 void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
-	MPI_Request send_top, send_bottom, recv_top, recv_bottom;
+	MPI_Request send_top1, send_bottom1, recv_top1, recv_bottom1;
+	MPI_Request send_top2, send_bottom2, recv_top2, recv_bottom2;
 	MPI_Status st1, st2, st3, st4;
 	int i,x,y, rows_l = vcd_mpi_self < vcd_mpi_processors-1 ? rows-1 : rows, idx, length = rows*columns;
 	double img1[length], img2[length], *tmp, *img1_p = img1, *img2_p = img2, d;
@@ -20,13 +21,19 @@ void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 	
 	/* Init MPI calls */
 	if (vcd_mpi_self > 0) {
-		MPI_Send_init(img1_p+columns, columns, MPI_DOUBLE, vcd_mpi_self - 1, 0, MPI_COMM_WORLD, &send_top);
-		MPI_Recv_init(img1_p, columns, MPI_DOUBLE, vcd_mpi_self - 1, 1, MPI_COMM_WORLD, &recv_bottom);
+		MPI_Send_init(img1_p+columns, columns, MPI_DOUBLE, vcd_mpi_self - 1, 0, MPI_COMM_WORLD, &send_top1);
+		MPI_Recv_init(img1_p, columns, MPI_DOUBLE, vcd_mpi_self - 1, 1, MPI_COMM_WORLD, &recv_bottom1);
+		
+		MPI_Send_init(img2_p+columns, columns, MPI_DOUBLE, vcd_mpi_self - 1, 0, MPI_COMM_WORLD, &send_top2);
+		MPI_Recv_init(img2_p, columns, MPI_DOUBLE, vcd_mpi_self - 1, 1, MPI_COMM_WORLD, &recv_bottom2);
 	}
 	
 	if (vcd_mpi_self < vcd_mpi_processors - 1) {
-		MPI_Send_init(img1_p+(rows-2)*columns, columns, MPI_DOUBLE, vcd_mpi_self + 1, 1, MPI_COMM_WORLD, &send_bottom);
-		MPI_Recv_init(img1_p+(rows-1)*columns, columns, MPI_DOUBLE, vcd_mpi_self + 1, 0, MPI_COMM_WORLD, &recv_top);
+		MPI_Send_init(img1_p+(rows-2)*columns, columns, MPI_DOUBLE, vcd_mpi_self + 1, 1, MPI_COMM_WORLD, &send_bottom1);
+		MPI_Recv_init(img1_p+(rows-1)*columns, columns, MPI_DOUBLE, vcd_mpi_self + 1, 0, MPI_COMM_WORLD, &recv_top1);
+		
+		MPI_Send_init(img2_p+(rows-2)*columns, columns, MPI_DOUBLE, vcd_mpi_self + 1, 1, MPI_COMM_WORLD, &send_bottom2);
+		MPI_Recv_init(img2_p+(rows-1)*columns, columns, MPI_DOUBLE, vcd_mpi_self + 1, 0, MPI_COMM_WORLD, &recv_top2);
 	}
 	
 	intToDoubleArray_parallel(image, img1_p, length);
@@ -53,31 +60,45 @@ void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 		
 		/* Share overlapping at the top */
 		if(vcd_mpi_self > 0) {
-			MPI_Start(&send_top);
+			if(img1_p == img1) {
+				MPI_Start(&send_top1);
+				MPI_Wait(&send_top1, &st2);
+			} else {
+				MPI_Start(&send_top2);
+				MPI_Wait(&send_top2, &st2);
+			}
 		}
 		
 		if (vcd_mpi_self < vcd_mpi_processors-1) {
-			MPI_Start(&recv_top);
-			MPI_Wait(&recv_top, &st1);
-		}
-		
-		if(vcd_mpi_self > 0) {
-			MPI_Wait(&send_top, &st2);
+			if(img1_p == img1) {
+				MPI_Start(&recv_top1);
+				MPI_Wait(&recv_top1, &st1);
+			} else {
+				MPI_Start(&recv_top2);
+				MPI_Wait(&recv_top2, &st1);
+			}
 		}
 		
 		
 		/* Share overlapping at the bottom */
 		if(vcd_mpi_self < vcd_mpi_processors-1) {
-			MPI_Start(&send_bottom);
+			if(img1_p == img1) {
+				MPI_Start(&send_bottom1);
+				MPI_Wait(&send_bottom1, &st4);
+			} else {
+				MPI_Start(&send_bottom2);
+				MPI_Wait(&send_bottom2, &st4);
+			}
 		}
 		
 		if(vcd_mpi_self > 0) {
-			MPI_Start(&recv_bottom);
-			MPI_Wait(&recv_bottom, &st3);
-		}
-		
-		if(vcd_mpi_self < vcd_mpi_processors-1) {
-			MPI_Wait(&send_bottom, &st4);
+			if(img1_p == img1) {
+				MPI_Start(&recv_bottom1);
+				MPI_Wait(&recv_bottom1, &st3);
+			} else {
+				MPI_Start(&recv_bottom2);
+				MPI_Wait(&recv_bottom2, &st3);
+			}
 		}
 		
 		
@@ -88,13 +109,17 @@ void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 	doubleToIntArray_parallel(img1_p, image, length, maxcolor);
 	
 	if (vcd_mpi_self > 0) {
-		MPI_Request_free(&send_top);
-		MPI_Request_free(&recv_bottom);
+		MPI_Request_free(&send_top1);
+		MPI_Request_free(&recv_bottom1);
+		MPI_Request_free(&send_top2);
+		MPI_Request_free(&recv_bottom2);
 	}
 	
 	if(vcd_mpi_self < vcd_mpi_processors-1) {
-		MPI_Request_free(&send_bottom);
-		MPI_Request_free(&recv_top);
+		MPI_Request_free(&send_bottom2);
+		MPI_Request_free(&recv_top2);
+		MPI_Request_free(&send_bottom1);
+		MPI_Request_free(&recv_top1);
 	}
 }
 
