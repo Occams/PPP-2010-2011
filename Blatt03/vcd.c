@@ -12,17 +12,21 @@ static void intToDoubleArray_parallel(int *src, double *dest, int length);
 static void doubleToIntArray_parallel(double *src, int *dest, int length, int maxcolor);
 
 void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
-	MPI_Status status;
-	MPI_Request send_top, send_bottom;
+	MPI_Request send_top, send_bottom, recv_top, recv_bottom;
 	int i,x,y, rows_l = vcd_mpi_self < vcd_mpi_processors-1 ? rows-1 : rows, idx, length = rows*columns;
 	double img1[length], img2[length], *tmp, *img1_p = img1, *img2_p = img2, d;
 	bool edge;
 	
 	/* Init MPI calls */
-	if (vcd_mpi_self > 0)
-	MPI_Send_init(img1_p+columns, columns, MPI_DOUBLE, vcd_mpi_self - 1, 0, MPI_COMM_WORLD, &send_top);
-	if (vcd_mpi_self < vcd_mpi_processors - 1)
-	MPI_Send_init(img1_p+(rows-2)*columns, columns, MPI_DOUBLE, vcd_mpi_self + 1, 1, MPI_COMM_WORLD, &send_bottom);
+	if (vcd_mpi_self > 0) {
+		MPI_Send_init(img1_p+columns, columns, MPI_DOUBLE, vcd_mpi_self - 1, 0, MPI_COMM_WORLD, &send_top);
+		MPI_Recv_init(img1_p, columns, MPI_DOUBLE, vcd_mpi_self - 1, 1, MPI_COMM_WORLD, &recv_bottom);
+	}
+	
+	if (vcd_mpi_self < vcd_mpi_processors - 1) {
+		MPI_Send_init(img1_p+(rows-2)*columns, columns, MPI_DOUBLE, vcd_mpi_self + 1, 1, MPI_COMM_WORLD, &send_bottom);
+		MPI_Recv_init(img1_p+(rows-1)*columns, columns, MPI_DOUBLE, vcd_mpi_self + 1, 0, MPI_COMM_WORLD, &recv_top);
+	}
 	
 	intToDoubleArray_parallel(image, img1_p, length);
 	
@@ -45,8 +49,6 @@ void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 		img1_p = img2_p;
 		img2_p = tmp;
 
-		/* Update stop condition */
-		MPI_Allreduce(&vcd_stop,&vcd_stop,1, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
 		
 		/* Share overlapping at the top */
 		if(vcd_mpi_self > 0) {
@@ -54,8 +56,7 @@ void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 		}
 		
 		if (vcd_mpi_self < vcd_mpi_processors-1) {
-			MPI_Recv(img1_p+(rows-1)*columns, columns, MPI_DOUBLE, vcd_mpi_self + 1,
-			0, MPI_COMM_WORLD, &status);
+			MPI_Start(&recv_top);
 		}
 		
 		/* Share overlapping at the bottom */
@@ -64,14 +65,24 @@ void vcd_parallel(int *image, int rows, int columns, int maxcolor) {
 		}
 		
 		if(vcd_mpi_self > 0) {
-			MPI_Recv(img1_p, columns, MPI_DOUBLE, vcd_mpi_self - 1,
-			1, MPI_COMM_WORLD, &status);
+			MPI_Start(&recv_bottom);
 		}
 		
-		MPI_Barrier(MPI_COMM_WORLD);
+		/* Update stop condition */
+		MPI_Allreduce(&vcd_stop, &vcd_stop, 1, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
 	}
 	
 	doubleToIntArray_parallel(img1_p, image, length, maxcolor);
+	
+	if (vcd_mpi_self > 0) {
+		MPI_Request_free(&send_top);
+		MPI_Request_free(&recv_bottom);
+	}
+	
+	if(vcd_mpi_self < vcd_mpi_processors-1) {
+		MPI_Request_free(&send_bottom);
+		MPI_Request_free(&recv_top);
+	}
 }
 
 void vcd_sequential(int *image, int rows, int columns, int maxcolor) {
