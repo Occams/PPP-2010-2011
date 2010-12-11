@@ -1,0 +1,11 @@
+#
+# Die Sonne und die sie umkreisende Erde.
+#
+# Schrittweite der Simulation: 86400 Sekunden (= 1 Tag)
+# Anzahl der Schritte: 366 (etwa 1 Jahr)
+# Bildausschnitt: 4e10 Meter breit und hoch mit
+#     (0,0) in der Mitte
+#
+2
+1.98e30   0         0  0  0       # Sonne
+5.977e24  1.496e11  0  0  29716   # Erde

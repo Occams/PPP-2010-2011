@@ -101,7 +101,7 @@ int main(int argc, char **argv) {
 		
 		if(mpi_self == 0) {
 			if (ppp_pnm_write(output_path, kind, rows, columns, maxcolor, gath_image) != 0)
-				m_printf("Could not write image to file %s\n", output_path);
+			m_printf("Could not write image to file %s\n", output_path);
 		}
 		
 		free(image);
