@@ -17,11 +17,11 @@
 int mpi_self = MASTER, mpi_processors;
 
 typedef struct {
-    long double x, y;
+	long double x, y;
 } vector;
 
 typedef struct {
-    long double max_x, max_y, offset;
+	long double max_x, max_y, offset;
 	bool gen_img;
 	int img_steps, width, heigth;
 	char* img_prefix;
@@ -144,56 +144,56 @@ inline void solve_sequential(body *bodies, int body_count, int steps, int delta,
 	}
 	
 	for (x = 0; x < steps; x++) {
+		
+		for (i = 0; i < body_count; i++) {
+			for(j = i + 1; j < body_count; j++) {
+				idx1 = i*body_count + j;
+				idx2 = j*body_count + i;
+				tmp1 = G * bodies[j].mass * bodies[i].mass;
+				tmp2 = bodies[j].x - bodies[i].x;
+				tmp3 = bodies[j].y - bodies[i].y;
+				tmp4 =  pow(sqrt(pow(tmp2, 2) + pow(tmp3, 2)), 3);
+				
+				mutual_f[idx1].x = tmp1 * (tmp2) / tmp4;
+				mutual_f[idx1].y = tmp1 * (tmp3) / tmp4;
+				mutual_f[idx2].x = - mutual_f[idx1].x;
+				mutual_f[idx2].y = - mutual_f[idx1].y;
+			}
+		}
+		
+		for (i = 0; i < body_count; i++) {
+			total_f[i].x = 0;
+			total_f[i].y = 0;
 			
-			for (i = 0; i < body_count; i++) {
-				for(j = i + 1; j < body_count; j++) {
-					idx1 = i*body_count + j;
-					idx2 = j*body_count + i;
-					tmp1 = G * bodies[j].mass * bodies[i].mass;
-					tmp2 = bodies[j].x - bodies[i].x;
-					tmp3 = bodies[j].y - bodies[i].y;
-					tmp4 =  pow(sqrt(pow(tmp2,2) + pow(tmp3,2)),3);
-					//printf("Length: %Lf\n",tmp4);
-					mutual_f[idx1].x = tmp1 * (tmp2) / tmp4;
-					mutual_f[idx1].y = tmp1 * (tmp3) / tmp4;
-					mutual_f[idx2].x = - mutual_f[idx1].x;
-					mutual_f[idx2].y = - mutual_f[idx1].y;
-					//printf("mutual_f[idx1].x = %Lf\n",mutual_f[idx1].x);
-				//	printf("mutual_f[idx1].y = %Lf\n",mutual_f[idx1].y);
+			for(j = 0; j < body_count; j++) {
+				
+				/* Total force */
+				if (i != j) {
+					idx1 = i*body_count+j;
+					total_f[i].x += mutual_f[idx1].x;
+					total_f[i].y += mutual_f[idx1].y;
 				}
 			}
 			
-			for (i = 0; i < body_count; i++) {
-				total_f[i].x = 0;
-				total_f[i].y = 0;
-				for(j = 0; j < body_count; j++) {
-				
-					/* Total force */
-					if (i != j) {
-					total_f[i].x += mutual_f[i*body_count+j].x;
-					total_f[i].y += mutual_f[i*body_count+j].y;
-					//printf("Total force %i: (%Lf,%Lf)\n", i, total_f[i].x, total_f[i].y);
-					}
-				}
-				
-				/* Acceleration */
-				total_f[i].x = total_f[i].x / bodies[i].mass;
-				total_f[i].y = total_f[i].y / bodies[i].mass;
-				
-				/* Update positon and velocity */	
-				bodies[i].x = bodies[i].x + bodies[i].vx  * delta + 0.5 * total_f[i].x * delta * delta;
-				bodies[i].y = bodies[i].y + bodies[i].vy  * delta + 0.5 * total_f[i].y * delta * delta;
-				bodies[i].vx = bodies[i].vx + total_f[i].x * delta;
-				bodies[i].vy = bodies[i].vy + total_f[i].y * delta;	
-			}
+			/* Acceleration */
+			total_f[i].x = total_f[i].x / bodies[i].mass;
+			total_f[i].y = total_f[i].y / bodies[i].mass;
 			
-			/* Save an image of intermediate results. */
-			if (img_info.gen_img && x % img_info.img_steps == 0) {
-				double long meters = MAX(img_info.max_x, img_info.max_y);
-				
-				saveImage(x, bodies, body_count, img_info.offset * meters,
-					img_info.offset * meters, img_info.width, img_info.heigth, img_info.img_prefix);
-			}
+			/* Update positon and velocity */
+			int delta_square = delta * delta;
+			bodies[i].x = bodies[i].x + bodies[i].vx  * delta + 0.5 * total_f[i].x * delta_square;
+			bodies[i].y = bodies[i].y + bodies[i].vy  * delta + 0.5 * total_f[i].y * delta_square;
+			bodies[i].vx = bodies[i].vx + total_f[i].x * delta;
+			bodies[i].vy = bodies[i].vy + total_f[i].y * delta;	
+		}
+		
+		/* Save an image of intermediate results. */
+		if (img_info.gen_img && x % img_info.img_steps == 0) {
+			double long meters = MAX(img_info.max_x, img_info.max_y);
+			
+			saveImage(x, bodies, body_count, img_info.offset * meters,
+			img_info.offset * meters, img_info.width, img_info.heigth, img_info.img_prefix);
+		}
 	}
 }
 
@@ -209,58 +209,58 @@ inline void solve_parallel(body *bodies, int body_count, int steps, int delta, i
 	}
 	
 	for (x = 0; x < steps; x++) {
+		
+		#pragma omp parallel for private (j,idx1,idx2,tmp1,tmp2,tmp3,tmp4)
+		for (i = 0; i < body_count; i++) {
+			for(j = i + 1; j < body_count; j++) {
+				idx1 = i*body_count + j;
+				idx2 = j*body_count + i;
+				tmp1 = G * bodies[j].mass * bodies[i].mass;
+				tmp2 = bodies[j].x - bodies[i].x;
+				tmp3 = bodies[j].y - bodies[i].y;
+				tmp4 =  pow(sqrt(pow(tmp2, 2) + pow(tmp3, 2)), 3);
+				
+				mutual_f[idx1].x = tmp1 * (tmp2) / tmp4;
+				mutual_f[idx1].y = tmp1 * (tmp3) / tmp4;
+				mutual_f[idx2].x = - mutual_f[idx1].x;
+				mutual_f[idx2].y = - mutual_f[idx1].y;
+			}
+		}
+		
+		#pragma omp parallel for private (j)
+		for (i = 0; i < body_count; i++) {
+			total_f[i].x = 0;
+			total_f[i].y = 0;
 			
-			#pragma omp parallel for private (j,idx1,idx2,tmp1,tmp2,tmp3,tmp4)
-			for (i = 0; i < body_count; i++) {
-				for(j = i + 1; j < body_count; j++) {
-					idx1 = i*body_count + j;
-					idx2 = j*body_count + i;
-					tmp1 = G * bodies[j].mass * bodies[i].mass;
-					tmp2 = bodies[j].x - bodies[i].x;
-					tmp3 = bodies[j].y - bodies[i].y;
-					tmp4 =  pow(sqrt(pow(tmp2,2) + pow(tmp3,2)),3);
-					//printf("Length: %Lf\n",tmp4);
-					mutual_f[idx1].x = tmp1 * (tmp2) / tmp4;
-					mutual_f[idx1].y = tmp1 * (tmp3) / tmp4;
-					mutual_f[idx2].x = - mutual_f[idx1].x;
-					mutual_f[idx2].y = - mutual_f[idx1].y;
-					//printf("mutual_f[idx1].x = %Lf\n",mutual_f[idx1].x);
-				//	printf("mutual_f[idx1].y = %Lf\n",mutual_f[idx1].y);
+			for(j = 0; j < body_count; j++) {
+				
+				/* Total force */
+				if (i != j) {
+					idx1 = i*body_count+j;
+					total_f[i].x += mutual_f[idx1].x;
+					total_f[i].y += mutual_f[idx1].y;
 				}
 			}
 			
-			#pragma omp parallel for private (j)
-			for (i = 0; i < body_count; i++) {
-				total_f[i].x = 0;
-				total_f[i].y = 0;
-				for(j = 0; j < body_count; j++) {
-				
-					/* Total force */
-					if (i != j) {
-					total_f[i].x += mutual_f[i*body_count+j].x;
-					total_f[i].y += mutual_f[i*body_count+j].y;
-					//printf("Total force %i: (%Lf,%Lf)\n", i, total_f[i].x, total_f[i].y);
-					}
-				}
-				
-				/* Acceleration */
-				total_f[i].x = total_f[i].x / bodies[i].mass;
-				total_f[i].y = total_f[i].y / bodies[i].mass;
-				
-				/* Update positon and velocity */	
-				bodies[i].x = bodies[i].x + bodies[i].vx  * delta + 0.5 * total_f[i].x * delta * delta;
-				bodies[i].y = bodies[i].y + bodies[i].vy  * delta + 0.5 * total_f[i].y * delta * delta;
-				bodies[i].vx = bodies[i].vx + total_f[i].x * delta;
-				bodies[i].vy = bodies[i].vy + total_f[i].y * delta;	
-			}
+			/* Acceleration */
+			total_f[i].x = total_f[i].x / bodies[i].mass;
+			total_f[i].y = total_f[i].y / bodies[i].mass;
 			
-			/* Save an image of intermediate results. */
-			if (img_info.gen_img && x % img_info.img_steps == 0) {
-				double long meters = MAX(img_info.max_x, img_info.max_y);
-				
-				saveImage(x, bodies, body_count, img_info.offset * meters,
-					img_info.offset * meters, img_info.width, img_info.heigth, img_info.img_prefix);
-			}
+			/* Update positon and velocity */	
+			int delta_square = delta * delta;
+			bodies[i].x = bodies[i].x + bodies[i].vx  * delta + 0.5 * total_f[i].x * delta_square;
+			bodies[i].y = bodies[i].y + bodies[i].vy  * delta + 0.5 * total_f[i].y * delta_square;
+			bodies[i].vx = bodies[i].vx + total_f[i].x * delta;
+			bodies[i].vy = bodies[i].vy + total_f[i].y * delta;	
+		}
+		
+		/* Save an image of intermediate results. */
+		if (img_info.gen_img && x % img_info.img_steps == 0) {
+			double long meters = MAX(img_info.max_x, img_info.max_y);
+			
+			saveImage(x, bodies, body_count, img_info.offset * meters,
+			img_info.offset * meters, img_info.width, img_info.heigth, img_info.img_prefix);
+		}
 	}
 
 }
@@ -285,8 +285,8 @@ void printBodies(const body *bodies, int body_count) {
 	int i;
 	
 	for (i = 0; i < body_count; i++)
-		m_printf("%i> Mass: %Lf , Position: (%Lf,%Lf) , Velocity: (%Lf,%Lf)\n",i,
-			bodies[i].mass, bodies[i].x, bodies[i].y, bodies[i].vx, bodies[i].vy);
+	m_printf("%i> Mass: %Lf , Position: (%Lf,%Lf) , Velocity: (%Lf,%Lf)\n",i,
+	bodies[i].mass, bodies[i].x, bodies[i].y, bodies[i].vx, bodies[i].vy);
 }
 
 bool examineBodies(const body *bodies, int body_count,long double *max_x, long double *max_y) {
