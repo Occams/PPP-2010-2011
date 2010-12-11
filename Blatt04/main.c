@@ -134,7 +134,7 @@ int main(int argc, char **argv) {
 
 inline void solve_sequential(body *bodies, int body_count, int steps, int delta,imggen_info img_info) {
 	int x, i, j, idx1, idx2;
-	long double tmp1, tmp2, tmp3, tmp4;
+	long double tmp1, tmp2, tmp3, tmp4, exponent = (long double)3 / (long double) 2;
 	vector *mutual_f = malloc(sizeof(vector) * body_count * body_count), *total_f = malloc(sizeof(vector) * body_count);
 	
 	if (mutual_f == NULL || total_f == NULL) {
@@ -152,7 +152,7 @@ inline void solve_sequential(body *bodies, int body_count, int steps, int delta,
 				tmp1 = G * bodies[j].mass * bodies[i].mass;
 				tmp2 = bodies[j].x - bodies[i].x;
 				tmp3 = bodies[j].y - bodies[i].y;
-				tmp4 =  pow(sqrt(pow(tmp2, 2) + pow(tmp3, 2)), 3);
+				tmp4 =  pow(pow(tmp2, 2) + pow(tmp3, 2), exponent);
 				
 				mutual_f[idx1].x = tmp1 * (tmp2) / tmp4;
 				mutual_f[idx1].y = tmp1 * (tmp3) / tmp4;
@@ -175,12 +175,16 @@ inline void solve_sequential(body *bodies, int body_count, int steps, int delta,
 				}
 			}
 			
+			//printf("Total force: %i > (%Lf,%Lf)\n", i,total_f[i].x, total_f[i].y); 
+			
 			/* Acceleration */
 			total_f[i].x = total_f[i].x / bodies[i].mass;
 			total_f[i].y = total_f[i].y / bodies[i].mass;
 			
+			//printf("Acceleration: %i > (%Lf,%Lf)\n", i,total_f[i].x, total_f[i].y);
+			
 			/* Update positon and velocity */
-			int delta_square = delta * delta;
+			long double delta_square = delta * delta;
 			bodies[i].x = bodies[i].x + bodies[i].vx  * delta + 0.5 * total_f[i].x * delta_square;
 			bodies[i].y = bodies[i].y + bodies[i].vy  * delta + 0.5 * total_f[i].y * delta_square;
 			bodies[i].vx = bodies[i].vx + total_f[i].x * delta;
