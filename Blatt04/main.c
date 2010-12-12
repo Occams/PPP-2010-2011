@@ -149,8 +149,8 @@ inline void solve_sequential(body *bodies, int body_count, int steps, int delta,
 			for(j = i + 1; j < body_count; j++) {
 				tmp2 = bodies[j].x - bodies[i].x;
 				tmp3 = bodies[j].y - bodies[i].y;
-				tmp4 = pow(sqrt(pow(tmp2,2) + pow(tmp3,2)),3);
-				
+				tmp4 = sqrtl(tmp2*tmp2 + tmp3*tmp3);
+				tmp4 = tmp4 * tmp4 * tmp4;
 				mutual_f[i][j].x = constants[i][j] * (tmp2) / tmp4;
 				mutual_f[i][j].y = constants[i][j] * (tmp3) / tmp4;
 				mutual_f[j][i].x = - mutual_f[i][j].x;
