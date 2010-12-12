@@ -153,8 +153,6 @@ inline void solve_sequential(body *bodies, int body_count, int steps, int delta,
 				tmp4 = tmp4 * tmp4 * tmp4;
 				mutual_f[i][j].x = constants[i][j] * (tmp2) / tmp4;
 				mutual_f[i][j].y = constants[i][j] * (tmp3) / tmp4;
-				mutual_f[j][i].x = - mutual_f[i][j].x;
-				mutual_f[j][i].y = - mutual_f[i][j].y;
 			}
 		}
 		
@@ -164,10 +162,12 @@ inline void solve_sequential(body *bodies, int body_count, int steps, int delta,
 			
 			for(j = 0; j < body_count; j++) {
 				
-				/* Total force */
-				if (i != j) {
+				if(j > i) {
 					total_f[i].x += mutual_f[i][j].x;
 					total_f[i].y += mutual_f[i][j].y;
+				} else if( i != j ) {
+					total_f[i].x -= mutual_f[j][i].x;
+					total_f[i].y -= mutual_f[j][i].y;
 				}
 			}
 			
