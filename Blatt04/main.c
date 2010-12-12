@@ -132,32 +132,29 @@ int main(int argc, char **argv) {
 	return 0;
 }
 
-inline void solve_sequential(body *bodies, int body_count, int steps, int delta,imggen_info img_info) {
-	int x, i, j, idx1, idx2;
-	long double tmp1, tmp2, tmp3, tmp4, exponent = (long double)3 / (long double) 2;
-	vector *mutual_f = malloc(sizeof(vector) * body_count * body_count), *total_f = malloc(sizeof(vector) * body_count);
+inline void solve_sequential(body *bodies, int body_count, int steps, int delta, imggen_info img_info) {
+	int x, i, j;
+	long double tmp2, tmp3, tmp4, constants[body_count][body_count], 
+		delta_square = delta * delta, meters = MAX(img_info.max_x, img_info.max_y);
+	vector mutual_f[body_count][body_count], total_f[body_count];
 	
-	if (mutual_f == NULL || total_f == NULL) {
-		printf("Could not allocate memory! Will exit now!");
-		MPI_Finalize();
-		exit(1);
-	}
+	for (i = 0; i < steps; i++)
+		for (j = i + 1; j < body_count; j++)
+			constants[i][j] =  G * bodies[j].mass * bodies[i].mass;
+	
 	
 	for (x = 0; x < steps; x++) {
 		
 		for (i = 0; i < body_count; i++) {
 			for(j = i + 1; j < body_count; j++) {
-				idx1 = i*body_count + j;
-				idx2 = j*body_count + i;
-				tmp1 = G * bodies[j].mass * bodies[i].mass;
 				tmp2 = bodies[j].x - bodies[i].x;
 				tmp3 = bodies[j].y - bodies[i].y;
-				tmp4 =  pow(pow(tmp2, 2) + pow(tmp3, 2), exponent);
+				tmp4 =  pow(sqrt(pow(tmp2, 2) + pow(tmp3, 2)), 3);
 				
-				mutual_f[idx1].x = tmp1 * (tmp2) / tmp4;
-				mutual_f[idx1].y = tmp1 * (tmp3) / tmp4;
-				mutual_f[idx2].x = - mutual_f[idx1].x;
-				mutual_f[idx2].y = - mutual_f[idx1].y;
+				mutual_f[i][j].x = constants[i][j] * (tmp2) / tmp4;
+				mutual_f[i][j].y = constants[i][j] * (tmp3) / tmp4;
+				mutual_f[j][i].x = - mutual_f[i][j].x;
+				mutual_f[j][i].y = - mutual_f[i][j].y;
 			}
 		}
 		
@@ -169,9 +166,8 @@ inline void solve_sequential(body *bodies, int body_count, int steps, int delta,
 				
 				/* Total force */
 				if (i != j) {
-					idx1 = i*body_count+j;
-					total_f[i].x += mutual_f[idx1].x;
-					total_f[i].y += mutual_f[idx1].y;
+					total_f[i].x += mutual_f[i][j].x;
+					total_f[i].y += mutual_f[i][j].y;
 				}
 			}
 			
@@ -184,17 +180,14 @@ inline void solve_sequential(body *bodies, int body_count, int steps, int delta,
 			//printf("Acceleration: %i > (%Lf,%Lf)\n", i,total_f[i].x, total_f[i].y);
 			
 			/* Update positon and velocity */
-			long double delta_square = delta * delta;
-			bodies[i].x = bodies[i].x + bodies[i].vx  * delta + 0.5 * total_f[i].x * delta_square;
-			bodies[i].y = bodies[i].y + bodies[i].vy  * delta + 0.5 * total_f[i].y * delta_square;
+			bodies[i].x = bodies[i].x + bodies[i].vx  * delta +  0.5 * total_f[i].x * delta_square;
+			bodies[i].y = bodies[i].y + bodies[i].vy  * delta +  0.5 * total_f[i].y * delta_square;
 			bodies[i].vx = bodies[i].vx + total_f[i].x * delta;
 			bodies[i].vy = bodies[i].vy + total_f[i].y * delta;	
 		}
 		
 		/* Save an image of intermediate results. */
 		if (img_info.gen_img && x % img_info.img_steps == 0) {
-			double long meters = MAX(img_info.max_x, img_info.max_y);
-			
 			saveImage(x, bodies, body_count, img_info.offset * meters,
 			img_info.offset * meters, img_info.width, img_info.heigth, img_info.img_prefix);
 		}
@@ -202,32 +195,30 @@ inline void solve_sequential(body *bodies, int body_count, int steps, int delta,
 }
 
 inline void solve_parallel(body *bodies, int body_count, int steps, int delta, imggen_info img_info) {
-	int x, i, j, idx1, idx2;
-	long double tmp1, tmp2, tmp3, tmp4;
-	vector *mutual_f = malloc(sizeof(vector) * body_count * body_count), *total_f = malloc(sizeof(vector) * body_count);
+	int x, i, j;
+	long double tmp2, tmp3, tmp4, constants[body_count][body_count], 
+		delta_square = delta * delta, meters = MAX(img_info.max_x, img_info.max_y);
+	vector mutual_f[body_count][body_count], total_f[body_count];
 	
-	if (mutual_f == NULL || total_f == NULL) {
-		printf("Could not allocate memory! Will exit now!");
-		MPI_Finalize();
-		exit(1);
-	}
+	#pragma omp parallel for private (j)
+	for (i = 0; i < steps; i++)
+		for (j = i + 1; j < body_count; j++)
+			constants[i][j] =  G * bodies[j].mass * bodies[i].mass;
+	
 	
 	for (x = 0; x < steps; x++) {
 		
-		#pragma omp parallel for private (j,idx1,idx2,tmp1,tmp2,tmp3,tmp4)
+		#pragma omp parallel for private (j,tmp2,tmp3,tmp4)
 		for (i = 0; i < body_count; i++) {
 			for(j = i + 1; j < body_count; j++) {
-				idx1 = i*body_count + j;
-				idx2 = j*body_count + i;
-				tmp1 = G * bodies[j].mass * bodies[i].mass;
 				tmp2 = bodies[j].x - bodies[i].x;
 				tmp3 = bodies[j].y - bodies[i].y;
 				tmp4 =  pow(sqrt(pow(tmp2, 2) + pow(tmp3, 2)), 3);
 				
-				mutual_f[idx1].x = tmp1 * (tmp2) / tmp4;
-				mutual_f[idx1].y = tmp1 * (tmp3) / tmp4;
-				mutual_f[idx2].x = - mutual_f[idx1].x;
-				mutual_f[idx2].y = - mutual_f[idx1].y;
+				mutual_f[i][j].x = constants[i][j] * (tmp2) / tmp4;
+				mutual_f[i][j].y = constants[i][j] * (tmp3) / tmp4;
+				mutual_f[j][i].x = - mutual_f[i][j].x;
+				mutual_f[j][i].y = - mutual_f[i][j].y;
 			}
 		}
 		
@@ -240,33 +231,32 @@ inline void solve_parallel(body *bodies, int body_count, int steps, int delta, i
 				
 				/* Total force */
 				if (i != j) {
-					idx1 = i*body_count+j;
-					total_f[i].x += mutual_f[idx1].x;
-					total_f[i].y += mutual_f[idx1].y;
+					total_f[i].x += mutual_f[i][j].x;
+					total_f[i].y += mutual_f[i][j].y;
 				}
 			}
+			
+			//printf("Total force: %i > (%Lf,%Lf)\n", i,total_f[i].x, total_f[i].y); 
 			
 			/* Acceleration */
 			total_f[i].x = total_f[i].x / bodies[i].mass;
 			total_f[i].y = total_f[i].y / bodies[i].mass;
 			
-			/* Update positon and velocity */	
-			int delta_square = delta * delta;
-			bodies[i].x = bodies[i].x + bodies[i].vx  * delta + 0.5 * total_f[i].x * delta_square;
-			bodies[i].y = bodies[i].y + bodies[i].vy  * delta + 0.5 * total_f[i].y * delta_square;
+			//printf("Acceleration: %i > (%Lf,%Lf)\n", i,total_f[i].x, total_f[i].y);
+			
+			/* Update positon and velocity */
+			bodies[i].x = bodies[i].x + bodies[i].vx  * delta +  0.5 * total_f[i].x * delta_square;
+			bodies[i].y = bodies[i].y + bodies[i].vy  * delta +  0.5 * total_f[i].y * delta_square;
 			bodies[i].vx = bodies[i].vx + total_f[i].x * delta;
 			bodies[i].vy = bodies[i].vy + total_f[i].y * delta;	
 		}
 		
 		/* Save an image of intermediate results. */
 		if (img_info.gen_img && x % img_info.img_steps == 0) {
-			double long meters = MAX(img_info.max_x, img_info.max_y);
-			
 			saveImage(x, bodies, body_count, img_info.offset * meters,
 			img_info.offset * meters, img_info.width, img_info.heigth, img_info.img_prefix);
 		}
 	}
-
 }
 
 inline double interactions(int body_count, int steps, double time) {
