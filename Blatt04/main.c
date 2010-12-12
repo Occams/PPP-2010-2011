@@ -135,7 +135,7 @@ int main(int argc, char **argv) {
 inline void solve_sequential(body *bodies, int body_count, int steps, int delta, imggen_info img_info) {
 	int x, i, j;
 	long double tmp2, tmp3, tmp4, constants[body_count][body_count], 
-		delta_square = delta * delta / 2, meters = MAX(img_info.max_x, img_info.max_y);
+		delta_square = delta * delta * 0.5, meters = MAX(img_info.max_x, img_info.max_y);
 	vector mutual_f[body_count][body_count], total_f[body_count];
 	
 	for (i = 0; i < body_count; i++)
@@ -149,9 +149,7 @@ inline void solve_sequential(body *bodies, int body_count, int steps, int delta,
 			for(j = i + 1; j < body_count; j++) {
 				tmp2 = bodies[j].x - bodies[i].x;
 				tmp3 = bodies[j].y - bodies[i].y;
-				tmp4 = sqrt(tmp2 * tmp2 + tmp3 * tmp3);
-				tmp4 *= tmp4;
-				tmp4 *= tmp4;
+				tmp4 = pow(sqrt(pow(tmp2,2) + pow(tmp3,2)),3);
 				
 				mutual_f[i][j].x = constants[i][j] * (tmp2) / tmp4;
 				mutual_f[i][j].y = constants[i][j] * (tmp3) / tmp4;
@@ -181,7 +179,7 @@ inline void solve_sequential(body *bodies, int body_count, int steps, int delta,
 			
 			//printf("Acceleration: %i > (%Lf,%Lf)\n", i,total_f[i].x, total_f[i].y);
 			
-			/* Update positon and velocity */
+			/* Update position and velocity */
 			bodies[i].x = bodies[i].x + bodies[i].vx  * delta + total_f[i].x * delta_square;
 			bodies[i].y = bodies[i].y + bodies[i].vy  * delta + total_f[i].y * delta_square;
 			bodies[i].vx = bodies[i].vx + total_f[i].x * delta;
@@ -199,7 +197,7 @@ inline void solve_sequential(body *bodies, int body_count, int steps, int delta,
 inline void solve_parallel(body *bodies, int body_count, int steps, int delta, imggen_info img_info) {
 	int x, i, j;
 	long double tmp2, tmp3, tmp4, constants[body_count][body_count], 
-		delta_square = delta * delta / 2, meters = MAX(img_info.max_x, img_info.max_y);
+		delta_square = delta * delta * 0.5, meters = MAX(img_info.max_x, img_info.max_y);
 	vector mutual_f[body_count][body_count], total_f[body_count];
 	
 	#pragma omp parallel for private (j)
