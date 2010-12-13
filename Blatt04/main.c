@@ -262,13 +262,26 @@ inline void solve_parallel(body *bodies, int body_count, int steps, int delta, i
 inline void solve_parallel_mpi(body *bodies, int body_count, int steps, int delta, imggen_info img_info) {
 	int step = body_count/mpi_processors;
 	int low = step*mpi_self;
-	int high = step*(mpi_self+1);
-	if(mpi_self == mpi_processors) high += body_count%mpi_processors;
+	int high = mpi_processors == 1 ? body_count :  step*(mpi_self+1);
+	if(mpi_self == mpi_processors - 1) high += body_count%mpi_processors;
 
 	int x, i, j;
 	long double tmp2, tmp3, tmp4, constants[body_count][body_count], 
 		delta_tmp = delta * 0.5, meters = MAX(img_info.max_x, img_info.max_y);
 	vector mutual_f[body_count][body_count], total_f[body_count];
+	
+	/*
+	 * Displs for Gatherv of positions and velocities
+	 */
+	int displs_x[mpi_processors];
+	int displs_v[mpi_processors];
+	int recvcounts[mpi_processors];
+	for(i = 0; i < body_count; i++) {
+		displs_x[i] = 1+5*i;
+		displs_v[i] = 3+5*i;
+		recvcounts[i] = 2;
+	}
+	
 	
 	#pragma omp parallel for private (j)
 	for (i = 0; i < body_count; i++)
@@ -337,7 +350,10 @@ inline void solve_parallel_mpi(body *bodies, int body_count, int steps, int delt
 	 	/*
 	 	 * Insert allgather here...
 	 	 */
+	 	MPI_Allgatherv(bodies, 2, MPI_LONG_DOUBLE, bodies,recvcounts, displs_x, MPI_LONG_DOUBLE, MPI_COMM_WORLD);
 	}
+	
+	MPI_Allgatherv(bodies, 2, MPI_LONG_DOUBLE, bodies,recvcounts, displs_v, MPI_LONG_DOUBLE, MPI_COMM_WORLD);
 }
 
 inline double interactions(int body_count, int steps, double time) {
