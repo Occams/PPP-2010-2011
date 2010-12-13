@@ -105,14 +105,14 @@ long double height, int imgWidth, int imgHeight, char *imgFilePrefix)
 {
 	int i, x, y;
 	int *img = (int *) malloc(sizeof(int) * imgWidth * imgHeight);
-	char name[strlen(imgFilePrefix)+10];
+	char name[strlen(imgFilePrefix)+15];
 
 	if (img == NULL) {
 		fprintf(stderr, "Oops: could not allocate memory for image\n");
 		return;
 	}
 
-	sprintf(name, "%s%05d.pbm", imgFilePrefix, imgNum);
+	sprintf(name, "%s%010d.pbm", imgFilePrefix, imgNum);
 	for (i=0; i< imgWidth*imgHeight; i++)
 	img[i] = 1;
 
