@@ -157,33 +157,33 @@ inline void solve_sequential(body *bodies, int body_count, int steps, int delta,
 		}
 		
 		for (i = 0; i < body_count; i++) {
-			total_f[i].x = 0;
-			total_f[i].y = 0;
+			tmp2 = 0;
+			tmp3 = 0;
 			
 			for(j = 0; j < body_count; j++) {
 				
 				if(j > i) {
-					total_f[i].x += mutual_f[i][j].x;
-					total_f[i].y += mutual_f[i][j].y;
+					tmp2 += mutual_f[i][j].x;
+					tmp3 += mutual_f[i][j].y;
 				} else if( i != j ) {
-					total_f[i].x -= mutual_f[j][i].x;
-					total_f[i].y -= mutual_f[j][i].y;
+					tmp2 -= mutual_f[j][i].x;
+					tmp3 -= mutual_f[j][i].y;
 				}
 			}
 			
 			//printf("Total force: %i > (%Lf,%Lf)\n", i,total_f[i].x, total_f[i].y); 
 			
 			/* Acceleration */
-			total_f[i].x = total_f[i].x / bodies[i].mass;
-			total_f[i].y = total_f[i].y / bodies[i].mass;
+			tmp2 = tmp2 / bodies[i].mass;
+			tmp3 = tmp3 / bodies[i].mass;
 			
 			//printf("Acceleration: %i > (%Lf,%Lf)\n", i,total_f[i].x, total_f[i].y);
 			
 			/* Update position and velocity */
-			bodies[i].x = bodies[i].x + bodies[i].vx  * delta + total_f[i].x * delta_tmp;
-			bodies[i].y = bodies[i].y + bodies[i].vy  * delta + total_f[i].y * delta_tmp;
-			bodies[i].vx = bodies[i].vx + total_f[i].x;
-			bodies[i].vy = bodies[i].vy + total_f[i].y;	
+			bodies[i].x = bodies[i].x + bodies[i].vx  * delta + tmp2 * delta_tmp;
+			bodies[i].y = bodies[i].y + bodies[i].vy  * delta + tmp3 * delta_tmp;
+			bodies[i].vx = bodies[i].vx + tmp2;
+			bodies[i].vy = bodies[i].vy + tmp3;	
 		}
 		
 		/* Save an image of intermediate results. */

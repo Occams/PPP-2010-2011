@@ -11,7 +11,7 @@ INCLUDES32 = -I./ -I/home/hpcuser/ppp2010-data/packages/ppp_pnm-32 -I$(COMMON)
 PARAMS = -Wall -std=gnu99 -O3 -fomit-frame-pointer -fopenmp
 
 
-.PHONY: all clean hydra hermes
+.PHONY: all clean hydra hermes anim
 
 all: $(SOURCE).c
 	rm -f $(SOURCE).bin $(SOURCE)-hydra.bin $(SOURCE)-hermes.bin PBM*;
@@ -25,3 +25,6 @@ hermes:
 
 clean:
 	rm -f $(SOURCE).bin $(SOURCE)-hydra.bin $(SOURCE)-hermes.bin PBM*;
+	
+anim:
+	convert PBM* -delay 10 -loop 0 animation.gif
