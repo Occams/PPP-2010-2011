@@ -229,7 +229,7 @@ inline void solve_parallel(body *bodies, int body_count, int steps, int delta, i
 			}
 		}
 		
-		#pragma omp parallel for private (j)
+		#pragma omp parallel for private (j, tmp2, tmp3)
 		for (i = 0; i < body_count; i++) {
 			tmp2 = 0;
 			tmp3 = 0;
@@ -269,19 +269,25 @@ inline void solve_parallel(body *bodies, int body_count, int steps, int delta, i
 }
 
 inline void solve_parallel_mpi(body *bodies, int body_count, int steps, int delta, imggen_info img_info) {
-	int x, i, j, step = body_count/mpi_processors;
-	int low[mpi_processors];
-	int high[mpi_processors], recvcounts[mpi_processors];
+	int x, i, j, step = body_count/mpi_processors, 
+		low[mpi_processors], high[mpi_processors], recvcounts[mpi_processors];
 	long double tmp2, tmp3, tmp4, constants[body_count][body_count], 
 		delta_tmp = delta * 0.5, meters = MAX(img_info.max_x, img_info.max_y);
 	vector mutual_f[body_count][body_count];
 	MPI_Datatype body_t;
+	
+	if (body_count < mpi_processors) {
+		m_printf("bodies < processes - Will exit now!");
+		MPI_Finalize();
+		exit(1);
+	}
 	
 	/*
 	 * New datatype.
 	 */
 	MPI_Type_contiguous(5, MPI_LONG_DOUBLE, &body_t);
 	MPI_Type_commit(&body_t);
+	
 	
 	for(i = 0; i < mpi_processors; i++) {
 		low[i] = step * i;
@@ -291,8 +297,8 @@ inline void solve_parallel_mpi(body *bodies, int body_count, int steps, int delt
 	}
 	
 	#pragma omp parallel for private (j)
-	for (i = 0; i < body_count; i++)
-		for (j = i + 1; j < body_count; j++)
+	for (i = low[mpi_self]; i < high[mpi_self]; i++)
+		for (j = 0; j < body_count; j++)
 			constants[i][j] =  G * bodies[j].mass * bodies[i].mass * delta;
 	
 	
@@ -305,31 +311,20 @@ inline void solve_parallel_mpi(body *bodies, int body_count, int steps, int delt
 				tmp3 = bodies[j].y - bodies[i].y;
 				tmp4 = sqrtl(tmp2*tmp2 + tmp3*tmp3);
 				tmp4 = tmp4 * tmp4 * tmp4;
-				
-				if(j > i) {
-					mutual_f[i][j].x = constants[i][j] * (tmp2) / tmp4;
-					mutual_f[i][j].y = constants[i][j] * (tmp3) / tmp4;
-				} else if( i != j ) {
-					mutual_f[j][i].x = constants[j][i] * (tmp2) / tmp4;
-					mutual_f[j][i].y = constants[j][i] * (tmp3) / tmp4;
-				}
+				mutual_f[i][j].x = constants[i][j] * tmp2 / tmp4;
+				mutual_f[i][j].y = constants[i][j] * tmp3 / tmp4;
 			}
 		}
 		
-		#pragma omp parallel for private (j)
+		
+		#pragma omp parallel for private (j, tmp2, tmp3)
 		for (i = low[mpi_self]; i < high[mpi_self]; i++) {
 			tmp2 = 0;
 			tmp3 = 0;
 			
 			for(j = 0; j < body_count; j++) {
-				
-				if(j > i) {
-					tmp2 += mutual_f[i][j].x;
-					tmp3 += mutual_f[i][j].y;
-				} else if( i != j ) {
-					tmp2 -= mutual_f[j][i].x;
-					tmp3 -= mutual_f[j][i].y;
-				}
+				tmp2 += mutual_f[i][j].x;
+				tmp3 += mutual_f[i][j].y;
 			}
 			
 			//printf("Total force: %i > (%Lf,%Lf)\n", i,total_f[i].x, total_f[i].y); 
