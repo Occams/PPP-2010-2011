@@ -307,12 +307,14 @@ inline void solve_parallel_mpi(body *bodies, int body_count, int steps, int delt
 		#pragma omp parallel for private (j, tmp2, tmp3, tmp4)
 		for (i = low[mpi_self]; i < high[mpi_self]; i++) {
 			for(j = 0; j < body_count; j++) {
-				tmp2 = bodies[j].x - bodies[i].x;
-				tmp3 = bodies[j].y - bodies[i].y;
-				tmp4 = sqrtl(tmp2*tmp2 + tmp3*tmp3);
-				tmp4 = tmp4 * tmp4 * tmp4;
-				mutual_f[i][j].x = constants[i][j] * tmp2 / tmp4;
-				mutual_f[i][j].y = constants[i][j] * tmp3 / tmp4;
+				if (i != j) {
+					tmp2 = bodies[j].x - bodies[i].x;
+					tmp3 = bodies[j].y - bodies[i].y;
+					tmp4 = sqrtl(tmp2*tmp2 + tmp3*tmp3);
+					tmp4 = tmp4 * tmp4 * tmp4;
+					mutual_f[i][j].x = constants[i][j] * tmp2 / tmp4;
+					mutual_f[i][j].y = constants[i][j] * tmp3 / tmp4;
+				}
 			}
 		}
 		
@@ -323,17 +325,21 @@ inline void solve_parallel_mpi(body *bodies, int body_count, int steps, int delt
 			tmp3 = 0;
 			
 			for(j = 0; j < body_count; j++) {
-				tmp2 += mutual_f[i][j].x;
-				tmp3 += mutual_f[i][j].y;
+				if (i != j) {
+					//printf("%i> mutual_f[%i][%i].x = %Lf\n",mpi_self, i,j, mutual_f[i][j].x);
+					//printf("%i> mutual_f[%i][%i].y = %Lf\n",mpi_self, i,j, mutual_f[i][j].y);
+					tmp2 += mutual_f[i][j].x;
+					tmp3 += mutual_f[i][j].y;
+				}
 			}
 			
-			//printf("Total force: %i > (%Lf,%Lf)\n", i,total_f[i].x, total_f[i].y); 
+			//printf("Total force: %i > (%Lf,%Lf)\n", i,tmp2, tmp3); 
 			
 			/* Acceleration */
 			tmp2 = tmp2 / bodies[i].mass;
 			tmp3 = tmp3 / bodies[i].mass;
 			
-			//printf("Acceleration: %i > (%Lf,%Lf)\n", i,total_f[i].x, total_f[i].y);
+			//printf("Acceleration: %i > (%Lf,%Lf)\n", i,tmp2, tmp3);
 			
 			/* Update position and velocity */
 			bodies[i].x = bodies[i].x + bodies[i].vx  * delta + tmp2 * delta_tmp;
