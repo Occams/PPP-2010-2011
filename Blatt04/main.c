@@ -259,6 +259,87 @@ inline void solve_parallel(body *bodies, int body_count, int steps, int delta, i
 	}
 }
 
+inline void solve_parallel_mpi(body *bodies, int body_count, int steps, int delta, imggen_info img_info) {
+	int step = body_count/mpi_processors;
+	int low = step*mpi_self;
+	int high = step*(mpi_self+1);
+	if(mpi_self == mpi_processors) high += body_count%mpi_processors;
+
+	int x, i, j;
+	long double tmp2, tmp3, tmp4, constants[body_count][body_count], 
+		delta_tmp = delta * 0.5, meters = MAX(img_info.max_x, img_info.max_y);
+	vector mutual_f[body_count][body_count], total_f[body_count];
+	
+	#pragma omp parallel for private (j)
+	for (i = 0; i < body_count; i++)
+		for (j = i + 1; j < body_count; j++)
+			constants[i][j] =  G * bodies[j].mass * bodies[i].mass * delta;
+	
+	
+	for (x = 0; x < steps; x++) {
+		
+		#pragma omp parallel for private (j, tmp2, tmp3, tmp4)
+		for (i = low; i < high; i++) {
+			for(j = 0; j < body_count; j++) {
+				tmp2 = bodies[j].x - bodies[i].x;
+				tmp3 = bodies[j].y - bodies[i].y;
+				tmp4 = sqrtl(tmp2*tmp2 + tmp3*tmp3);
+				tmp4 = tmp4 * tmp4 * tmp4;
+				
+				if(j > i) {
+					mutual_f[i][j].x = constants[i][j] * (tmp2) / tmp4;
+					mutual_f[i][j].y = constants[i][j] * (tmp3) / tmp4;
+				} else if( i != j ) {
+					mutual_f[j][i].x = constants[j][i] * (tmp2) / tmp4;
+					mutual_f[j][i].y = constants[j][i] * (tmp3) / tmp4;
+				}
+			}
+		}
+		
+		#pragma omp parallel for private (j)
+		for (i = low; i < high; i++) {
+			total_f[i].x = 0;
+			total_f[i].y = 0;
+			
+			for(j = 0; j < body_count; j++) {
+				
+				if(j > i) {
+					total_f[i].x += mutual_f[i][j].x;
+					total_f[i].y += mutual_f[i][j].y;
+				} else if( i != j ) {
+					total_f[i].x -= mutual_f[j][i].x;
+					total_f[i].y -= mutual_f[j][i].y;
+				}
+			}
+			
+			//printf("Total force: %i > (%Lf,%Lf)\n", i,total_f[i].x, total_f[i].y); 
+			
+			/* Acceleration */
+			total_f[i].x = total_f[i].x / bodies[i].mass;
+			total_f[i].y = total_f[i].y / bodies[i].mass;
+			
+			//printf("Acceleration: %i > (%Lf,%Lf)\n", i,total_f[i].x, total_f[i].y);
+			
+			/* Update position and velocity */
+			bodies[i].x = bodies[i].x + bodies[i].vx  * delta + total_f[i].x * delta_tmp;
+			bodies[i].y = bodies[i].y + bodies[i].vy  * delta + total_f[i].y * delta_tmp;
+			bodies[i].vx = bodies[i].vx + total_f[i].x;
+			bodies[i].vy = bodies[i].vy + total_f[i].y;	
+		}
+		
+		/* Save an image of intermediate results. */
+		if (img_info.gen_img && x % img_info.img_steps == 0) {
+			saveImage(x, bodies, body_count, img_info.offset * meters,
+			img_info.offset * meters, img_info.width, img_info.heigth, img_info.img_prefix);
+		}
+
+	 	/* Share x and v */
+	 	/*
+	 	 * Insert allgather here...
+	 	 */
+	}
+}
+
 inline double interactions(int body_count, int steps, double time) {
 	return (double) (body_count * (body_count-1) * steps) / time;
 }
