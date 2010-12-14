@@ -31,7 +31,7 @@ typedef struct {
 int m_printf(char *format, ... );
 void printhelp();
 void printBodies(const body *bodies, int body_count);
-double interactions(int body_count, int steps, double time);
+long double interactions(int body_count, int steps, long double time);
 void solve_sequential(body *bodies, int body_count, int steps, int delta, imggen_info info);
 void solve_parallel(body *bodies, int body_count, int steps, int delta, imggen_info info);
 void solve_parallel_mpi(body *bodies, int body_count, int steps, int delta, imggen_info img_info);
@@ -40,8 +40,8 @@ bool examineBodies(const body *bodies, int body_count, long double *max_x, long 
 int main(int argc, char **argv) {
 	int option, steps = 365, delta = 1, body_count;
 	char *input = "init.dat", *output = "result.dat";
-	bool parallel = false, mpi=false;
-	double start;
+	bool parallel = false, mpi = false;
+	long double start;
 	long double px, py;
 	imggen_info img_info;
 	body *bodies = NULL;
@@ -122,7 +122,7 @@ int main(int argc, char **argv) {
 		solve_sequential(bodies, body_count, steps, delta, img_info);
 	}
 	
-	m_printf("Rate of interactions: %lf\n", interactions(body_count, steps, seconds() - start));
+	m_printf("Rate of interactions: %Lf\n", interactions(body_count, steps, seconds() - start));
 	totalImpulse(bodies, body_count, &px, &py);
 	m_printf("Resulting total impulse: px = %Lf , py = %Lf\n", px, py);
 	
@@ -278,8 +278,8 @@ inline void solve_parallel_mpi(body *bodies, int body_count, int steps, int delt
 	void *gather_base;
 	
 	/*
-	 * New datatype for positions...
-	 */
+	* New datatype for positions within body struct.
+	*/
 	int t_xblens[] = {1,2,1};
 	//MPI_Aint t_xdispls[] = {0,(int)(&(bodies[0].x)-(long double*)bodies),sizeof(body)};
 	MPI_Aint t_xdispls[] = {0,12,sizeof(body)};
@@ -289,7 +289,7 @@ inline void solve_parallel_mpi(body *bodies, int body_count, int steps, int delt
 	MPI_Type_commit(&pos_t);
 	
 	/*
-	* New datatype.
+	* New datatype for body struct.
 	*/
 	MPI_Type_contiguous(5, MPI_LONG_DOUBLE, &body_t);
 	MPI_Type_commit(&body_t);
@@ -317,8 +317,8 @@ inline void solve_parallel_mpi(body *bodies, int body_count, int steps, int delt
 	
 	#pragma omp parallel for private (j)
 	for (i = low_s; i < high_s; i++)
-		for (j = 0; j < body_count; j++)
-			constants[i][j] =  G * bodies[j].mass * bodies[i].mass * delta;
+	for (j = 0; j < body_count; j++)
+	constants[i][j] =  G * bodies[j].mass * bodies[i].mass * delta;
 	
 	
 	for (x = 0; x < steps; x++) {
@@ -347,7 +347,7 @@ inline void solve_parallel_mpi(body *bodies, int body_count, int steps, int delt
 			tmp3 = 0;
 			
 			for(j = 0; j < body_count; j++) {
-			
+				
 				if (j < low_s || j > i) {
 					//printf("%i> mutual_f[%i][%i].x = %Lf\n",mpi_self, i,j, mutual_f[i][j].x);
 					//printf("%i> mutual_f[%i][%i].y = %Lf\n",mpi_self, i,j, mutual_f[i][j].y);
@@ -386,8 +386,8 @@ inline void solve_parallel_mpi(body *bodies, int body_count, int steps, int delt
 	MPI_Allgatherv(gather_base, gather_sendcount, body_t, bodies, recvcounts, low, body_t, MPI_COMM_WORLD);
 }
 
-inline double interactions(int body_count, int steps, double time) {
-	return (double) (body_count * (body_count-1) * steps) / time;
+inline long double interactions(int body_count, int steps, long double time) {
+	return (long double) (body_count * (body_count-1) * steps) / time;
 }
 
 void printhelp() {
