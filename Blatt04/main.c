@@ -270,17 +270,29 @@ inline void solve_parallel(body *bodies, int body_count, int steps, int delta, i
 
 inline void solve_parallel_mpi(body *bodies, int body_count, int steps, int delta, imggen_info img_info) {
 	int x, i, j, step = body_count/mpi_processors, 
-		low[mpi_processors], high[mpi_processors], recvcounts[mpi_processors];
+		low[mpi_processors], high[mpi_processors], recvcounts[mpi_processors], high_s, low_s, gather_sendcount;
 	long double tmp2, tmp3, tmp4, constants[body_count][body_count], 
 		delta_tmp = delta * 0.5, meters = MAX(img_info.max_x, img_info.max_y);
 	vector mutual_f[body_count][body_count];
 	MPI_Datatype body_t;
+	void *gather_base;
 	
 	if (body_count < mpi_processors) {
-		m_printf("bodies < processes - Will exit now!");
+		m_printf("bodies < processes - Will exit now!\n");
 		MPI_Finalize();
 		exit(1);
 	}
+	
+	/*
+  * New datatype for positions...
+  */
+ int t_xblens[] = {1,2,1};
+ //MPI_Aint t_xdispls[] = {0,(int)(&(bodies[0].x)-(long double*)bodies),sizeof(body)};
+ MPI_Aint t_xdispls[] = {0,12,sizeof(body)};
+ MPI_Datatype t_xtypes[] = {MPI_LB, MPI_LONG_DOUBLE,MPI_UB};
+ MPI_Datatype pos_t;
+ MPI_Type_create_struct(3, t_xblens, t_xdispls, t_xtypes, &pos_t);
+ MPI_Type_commit(&pos_t);
 	
 	/*
 	 * New datatype.
@@ -288,7 +300,9 @@ inline void solve_parallel_mpi(body *bodies, int body_count, int steps, int delt
 	MPI_Type_contiguous(5, MPI_LONG_DOUBLE, &body_t);
 	MPI_Type_commit(&body_t);
 	
-	
+	/*
+	* Distribution params.
+	*/
 	for(i = 0; i < mpi_processors; i++) {
 		low[i] = step * i;
 		high[i] = mpi_processors == 1 ? body_count : step*(i + 1);
@@ -296,8 +310,13 @@ inline void solve_parallel_mpi(body *bodies, int body_count, int steps, int delt
 		recvcounts[i] = high[i] - low[i];
 	}
 	
+	high_s = high[mpi_self];
+	low_s = low[mpi_self];
+	gather_base = bodies + low_s;
+	gather_sendcount = recvcounts[mpi_self];
+	
 	#pragma omp parallel for private (j)
-	for (i = low[mpi_self]; i < high[mpi_self]; i++)
+	for (i = low_s; i < high_s; i++)
 		for (j = 0; j < body_count; j++)
 			constants[i][j] =  G * bodies[j].mass * bodies[i].mass * delta;
 	
@@ -305,7 +324,7 @@ inline void solve_parallel_mpi(body *bodies, int body_count, int steps, int delt
 	for (x = 0; x < steps; x++) {
 		
 		#pragma omp parallel for private (j, tmp2, tmp3, tmp4)
-		for (i = low[mpi_self]; i < high[mpi_self]; i++) {
+		for (i = low_s; i < high_s; i++) {
 			for(j = 0; j < body_count; j++) {
 				if (i != j) {
 					tmp2 = bodies[j].x - bodies[i].x;
@@ -320,7 +339,7 @@ inline void solve_parallel_mpi(body *bodies, int body_count, int steps, int delt
 		
 		
 		#pragma omp parallel for private (j, tmp2, tmp3)
-		for (i = low[mpi_self]; i < high[mpi_self]; i++) {
+		for (i = low_s; i < high_s; i++) {
 			tmp2 = 0;
 			tmp3 = 0;
 			
@@ -348,7 +367,7 @@ inline void solve_parallel_mpi(body *bodies, int body_count, int steps, int delt
 			bodies[i].vy = bodies[i].vy + tmp3;	
 		}
 		
-		MPI_Allgatherv(bodies + low[mpi_self], recvcounts[mpi_self], body_t, bodies, recvcounts, low, body_t, MPI_COMM_WORLD);
+		MPI_Allgatherv(gather_base, gather_sendcount, pos_t, bodies, recvcounts, low, pos_t, MPI_COMM_WORLD);
 		
 		/* Save an image of intermediate results. */
 		if (img_info.gen_img && x % img_info.img_steps == 0 && mpi_self == MASTER) {
@@ -356,6 +375,8 @@ inline void solve_parallel_mpi(body *bodies, int body_count, int steps, int delt
 			img_info.offset * meters, img_info.width, img_info.heigth, img_info.img_prefix);
 		}
 	}
+	
+	 MPI_Allgatherv(gather_base, gather_sendcount, body_t, bodies, recvcounts, low, body_t, MPI_COMM_WORLD);
 }
 
 inline double interactions(int body_count, int steps, double time) {
