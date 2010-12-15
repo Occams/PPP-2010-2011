@@ -398,14 +398,14 @@ inline void solve_parallel_mpi(body *bodies, int body_count, int steps, int delt
 }
 
 inline void solve_parallel_mpi_global_newton(body *bodies, int body_count, int steps, int delta, imggen_info img_info) {
-	int x, i, j, step = body_count/mpi_processors, body_c_square = body_count * body_count, idx1,idx2,
-		low[mpi_processors], high[mpi_processors], recvcounts[mpi_processors], high_s, low_s, gather_sendcount;
-	long double tmp2, tmp3, tmp4, constants[body_count][body_count], 
+	int x, i, j, step = body_count/mpi_processors, reduce_send_c = body_count*2,
+	low[mpi_processors], high[mpi_processors], recvcounts[mpi_processors], high_s, low_s, gather_sendcount;
+	long double tmp1, tmp2, tmp3, tmp4, constants[body_count][body_count], 
 	delta_tmp = delta * 0.5, meters = MAX(img_info.max_x, img_info.max_y);
-	vector *mutual_f = (vector *) malloc(sizeof(vector) * body_c_square);
-	vector *combined_f = (vector *) malloc(sizeof(vector) * body_c_square);
-	MPI_Datatype body_t, vector_t;
-	MPI_Op vectorSumOp;
+	vector *mutual_f = (vector *) malloc(sizeof(vector) * body_count);
+	vector *combined_f = (vector *) malloc(sizeof(vector) * body_count);
+	vector sum[body_count];
+	MPI_Datatype body_t;
 	void *gather_base;
 	
 	/*
@@ -455,57 +455,52 @@ inline void solve_parallel_mpi_global_newton(body *bodies, int body_count, int s
 	
 	#pragma omp parallel for private (j)
 	for (i = low_s; i < high_s; i++)
-		for (j = i+1; j < body_count; j++)
-			constants[i][j] =  G * bodies[j].mass * bodies[i].mass * delta;
-		
-	
+	for (j = i+1; j < body_count; j++)
+	constants[i][j] =  G * bodies[j].mass * bodies[i].mass * delta;
 	
 	for (x = 0; x < steps; x++) {
-	
-		#pragma omp parallel for
-		for (i = 0; i < body_c_square; i++) {
-				mutual_f[i].x =  0;
-				mutual_f[i].y =  0;
-		}
 		
-		#pragma omp parallel for private (j, tmp2, tmp3, tmp4, idx1, idx2)
-		for (i = low_s; i < high_s; i++) {
-			int idxi = i*body_count;
+		#pragma omp parallel private (sum)
+		{
 			
-			for(j = i+1; j < body_count; j++) {
+			for (i = 0; i < body_count; i++) {
+				sum[i].x = 0;
+				sum[i].y = 0;
+			}
+			
+			#pragma omp for private (j, tmp1, tmp2, tmp3, tmp4)
+			for (i = low_s; i < high_s; i++) {
+				for(j = i+1; j < body_count; j++) {
 					//printf("%i> Computed (%i, %i)\n",mpi_self,i,j);
 					tmp2 = bodies[j].x - bodies[i].x;
 					tmp3 = bodies[j].y - bodies[i].y;
 					tmp4 = tmp2*tmp2 + tmp3*tmp3;
 					tmp4 *= sqrtl(tmp4);
-					idx1 = idxi + j;
-					idx2 = j * body_count + i;
-					mutual_f[idx1].x = constants[i][j] * tmp2 / tmp4;
-					mutual_f[idx1].y = constants[i][j] * tmp3 / tmp4;
-					mutual_f[idx2].x = - mutual_f[idx1].x;
-					mutual_f[idx2].y = - mutual_f[idx1].y;
-			}
-		}
-		
-		MPI_Allreduce(mutual_f, combined_f, 2*body_c_square, MPI_LONG_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-		
-		
-		#pragma omp parallel for private (j, tmp2, tmp3, idx1)
-		for (i = low_s; i < high_s; i++) {
-			tmp2 = 0;
-			tmp3 = 0;
-			idx1 = i*body_count;
-			
-			for(j = 0; j < body_count; j++) {
-				
-				if(i != j) {
-					idx2 = idx1 + j;
-					tmp2 += combined_f[idx2].x;
-					tmp3 += combined_f[idx2].y;
+					tmp1 = constants[i][j] * tmp2 / tmp4;
+					sum[i].x += tmp1;
+					sum[j].x -= tmp1;
+					tmp1 = constants[i][j] * tmp3 / tmp4;
+					sum[i].y += tmp1;
+					sum[j].y -= tmp1;
 				}
 			}
 			
-			//printf("Total force: %i > (%Lf,%Lf)\n", i,tmp2, tmp3); 
+			for (i = 0; i < body_count; i++) {
+				#pragma omp critical
+				{
+					mutual_f[i].x = sum[i].x;
+					mutual_f[i].y = sum[i].y;
+				}
+			}
+		}
+		
+		/* Reduce partial sums */
+		MPI_Allreduce(mutual_f, combined_f, reduce_send_c, MPI_LONG_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+		
+		#pragma omp parallel for private (j, tmp2, tmp3)
+		for (i = low_s; i < high_s; i++) {
+			tmp2 = combined_f[i].x;
+			tmp3 = combined_f[i].y;
 			
 			/* Acceleration */
 			tmp2 /= bodies[i].mass;
@@ -578,13 +573,13 @@ inline bool examineBodies(const body *bodies, int body_count,long double *max_x,
 }
 
 void vectorSum(void *in, void *inout, int *len, MPI_Datatype *dptr ) { 
-    int i; 
+	int i; 
 	vector *v_in = (vector *) in, *v_inout = (vector *) inout;
 	
 	for (i = 0; i < *len; ++i) { 
 		v_inout[i].x = v_in[i].x + v_inout[i].x;
 		v_inout[i].y = v_in[i].y + v_inout[i].y;
-    }
+	}
 } 
 
 int m_printf(char *format, ...) {
