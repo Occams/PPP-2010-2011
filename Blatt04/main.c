@@ -31,16 +31,18 @@ typedef struct {
 int m_printf(char *format, ... );
 void printhelp();
 void printBodies(const body *bodies, int body_count);
+void vectorSum(void *in, void *inout, int *len, MPI_Datatype *dptr );
 long double interactions(int body_count, int steps, long double time);
 void solve_sequential(body *bodies, int body_count, int steps, int delta, imggen_info info);
 void solve_parallel(body *bodies, int body_count, int steps, int delta, imggen_info info);
 void solve_parallel_mpi(body *bodies, int body_count, int steps, int delta, imggen_info img_info);
+void solve_parallel_mpi_global_newton(body *bodies, int body_count, int steps, int delta, imggen_info img_info);
 bool examineBodies(const body *bodies, int body_count, long double *max_x, long double *max_y);
 
 int main(int argc, char **argv) {
 	int option, steps = 365, delta = 1, body_count;
 	char *input = "init.dat", *output = "result.dat";
-	bool parallel = false, mpi = false;
+	bool parallel = false, mpi = false, global_newton = false;
 	long double start;
 	long double px, py;
 	imggen_info img_info;
@@ -50,12 +52,12 @@ int main(int argc, char **argv) {
 	img_info.gen_img = false;
 	img_info.img_steps = 1000;
 	img_info.img_prefix = "PBM";
-	img_info.offset = 2.2;
-	img_info.width = 400;
-	img_info.heigth = 400;
+	img_info.offset = 2;
+	img_info.width = 1000;
+	img_info.heigth = 1000;
 	
 	/* Read cmdline params */
-	while ((option = getopt(argc,argv,"phs:d:f:o:i:x:gm")) != -1) {
+	while ((option = getopt(argc,argv,"phs:d:f:o:i:x:gmn")) != -1) {
 		
 		switch(option) {
 		case 'p': parallel = true; break;
@@ -67,6 +69,7 @@ int main(int argc, char **argv) {
 		case 'x': img_info.img_steps = atoi(optarg); break;
 		case 'g': img_info.gen_img = true; break;
 		case 'm': mpi = true; break;
+		case 'n': global_newton = true; break;
 		default:
 			printhelp();
 			return 1;
@@ -112,7 +115,13 @@ int main(int argc, char **argv) {
 		
 		if (mpi) {
 			m_printf("MPI+OMP\n");
-			solve_parallel_mpi(bodies, body_count, steps, delta, img_info);
+			
+			if (global_newton) {
+				m_printf("Global Newton\n");
+				solve_parallel_mpi_global_newton(bodies, body_count, steps, delta, img_info);
+			} else {
+				solve_parallel_mpi(bodies, body_count, steps, delta, img_info);
+			}
 		} else {
 			m_printf("OMP\n");
 			solve_parallel(bodies, body_count, steps, delta, img_info);
@@ -158,8 +167,8 @@ inline void solve_sequential(body *bodies, int body_count, int steps, int delta,
 			for(j = i + 1; j < body_count; j++) {
 				tmp2 = bodies[j].x - bodies[i].x;
 				tmp3 = bodies[j].y - bodies[i].y;
-				tmp4 = sqrtl(tmp2*tmp2 + tmp3*tmp3);
-				tmp4 = tmp4 * tmp4 * tmp4;
+				tmp4 = tmp2*tmp2 + tmp3*tmp3;
+				tmp4 *= sqrtl(tmp4);
 				mutual_f[i][j].x = constants[i][j] * (tmp2) / tmp4;
 				mutual_f[i][j].y = constants[i][j] * (tmp3) / tmp4;
 			}
@@ -222,8 +231,8 @@ inline void solve_parallel(body *bodies, int body_count, int steps, int delta, i
 			for(j = i + 1; j < body_count; j++) {
 				tmp2 = bodies[j].x - bodies[i].x;
 				tmp3 = bodies[j].y - bodies[i].y;
-				tmp4 = sqrtl(tmp2*tmp2 + tmp3*tmp3);
-				tmp4 = tmp4 * tmp4 * tmp4;
+				tmp4 = tmp2*tmp2 + tmp3*tmp3;
+				tmp4 *= sqrtl(tmp4);
 				mutual_f[i][j].x = constants[i][j] * (tmp2) / tmp4;
 				mutual_f[i][j].y = constants[i][j] * (tmp3) / tmp4;
 			}
@@ -330,8 +339,8 @@ inline void solve_parallel_mpi(body *bodies, int body_count, int steps, int delt
 					//printf("%i> Computed (%i, %i)\n",mpi_self,i,j);
 					tmp2 = bodies[j].x - bodies[i].x;
 					tmp3 = bodies[j].y - bodies[i].y;
-					tmp4 = sqrtl(tmp2*tmp2 + tmp3*tmp3);
-					tmp4 = tmp4 * tmp4 * tmp4;
+					tmp4 = tmp2*tmp2 + tmp3*tmp3;
+					tmp4 *= sqrtl(tmp4);
 					mutual_f[i][j].x = constants[i][j] * tmp2 / tmp4;
 					mutual_f[i][j].y = constants[i][j] * tmp3 / tmp4;
 					//mutual_f[j][i].x = - mutual_f[i][j].x;
@@ -374,6 +383,7 @@ inline void solve_parallel_mpi(body *bodies, int body_count, int steps, int delt
 			bodies[i].vy = bodies[i].vy + tmp3;	
 		}
 		
+		/* Exchange positions */
 		MPI_Allgatherv(gather_base, gather_sendcount, pos_t, bodies, recvcounts, low, pos_t, MPI_COMM_WORLD);
 		
 		/* Save an image of intermediate results. */
@@ -383,6 +393,144 @@ inline void solve_parallel_mpi(body *bodies, int body_count, int steps, int delt
 		}
 	}
 	
+	/* Consolidate data */
+	MPI_Allgatherv(gather_base, gather_sendcount, body_t, bodies, recvcounts, low, body_t, MPI_COMM_WORLD);
+}
+
+inline void solve_parallel_mpi_global_newton(body *bodies, int body_count, int steps, int delta, imggen_info img_info) {
+	int x, i, j, step = body_count/mpi_processors, body_c_square = body_count * body_count, idx1,idx2,
+		low[mpi_processors], high[mpi_processors], recvcounts[mpi_processors], high_s, low_s, gather_sendcount;
+	long double tmp2, tmp3, tmp4, constants[body_count][body_count], 
+	delta_tmp = delta * 0.5, meters = MAX(img_info.max_x, img_info.max_y);
+	vector *mutual_f = (vector *) malloc(sizeof(vector) * body_c_square);
+	vector *combined_f = (vector *) malloc(sizeof(vector) * body_c_square);
+	MPI_Datatype body_t, vector_t;
+	MPI_Op vectorSumOp;
+	void *gather_base;
+	
+	/*
+	* New datatype for positions within body struct.
+	*/
+	int t_xblens[] = {1,2,1};
+	//MPI_Aint t_xdispls[] = {0,(int)(&(bodies[0].x)-(long double*)bodies),sizeof(body)};
+	MPI_Aint t_xdispls[] = {0,12,sizeof(body)};
+	MPI_Datatype t_xtypes[] = {MPI_LB, MPI_LONG_DOUBLE,MPI_UB};
+	MPI_Datatype pos_t;
+	MPI_Type_create_struct(3, t_xblens, t_xdispls, t_xtypes, &pos_t);
+	MPI_Type_commit(&pos_t);
+	
+	/*
+	* New datatype for body struct.
+	*/
+	MPI_Type_contiguous(5, MPI_LONG_DOUBLE, &body_t);
+	MPI_Type_commit(&body_t);
+	
+	/*
+	* New datatype for vector struct.
+	*/
+	//MPI_Type_contiguous(2, MPI_LONG_DOUBLE, &vector_t);
+	//MPI_Type_commit(&vector_t);
+	//MPI_Op_create(vectorSum, true, &vectorSumOp);
+	
+	if (body_count < mpi_processors) {
+		m_printf("bodies < processes - Will exit now!\n");
+		MPI_Finalize();
+		exit(1);
+	}
+	
+	/*
+	* Distribution params.
+	*/
+	for(i = 0; i < mpi_processors; i++) {
+		low[i] = step * i;
+		high[i] = mpi_processors == 1 ? body_count : step*(i + 1);
+		if(i == mpi_processors - 1) high[i] += body_count%mpi_processors;
+		recvcounts[i] = high[i] - low[i];
+	}
+	
+	high_s = high[mpi_self];
+	low_s = low[mpi_self];
+	gather_base = bodies + low_s;
+	gather_sendcount = recvcounts[mpi_self];
+	
+	#pragma omp parallel for private (j)
+	for (i = low_s; i < high_s; i++)
+		for (j = i+1; j < body_count; j++)
+			constants[i][j] =  G * bodies[j].mass * bodies[i].mass * delta;
+		
+	
+	
+	for (x = 0; x < steps; x++) {
+	
+		#pragma omp parallel for
+		for (i = 0; i < body_c_square; i++) {
+				mutual_f[i].x =  0;
+				mutual_f[i].y =  0;
+		}
+		
+		#pragma omp parallel for private (j, tmp2, tmp3, tmp4, idx1, idx2)
+		for (i = low_s; i < high_s; i++) {
+			int idxi = i*body_count;
+			
+			for(j = i+1; j < body_count; j++) {
+					//printf("%i> Computed (%i, %i)\n",mpi_self,i,j);
+					tmp2 = bodies[j].x - bodies[i].x;
+					tmp3 = bodies[j].y - bodies[i].y;
+					tmp4 = tmp2*tmp2 + tmp3*tmp3;
+					tmp4 *= sqrtl(tmp4);
+					idx1 = idxi + j;
+					idx2 = j * body_count + i;
+					mutual_f[idx1].x = constants[i][j] * tmp2 / tmp4;
+					mutual_f[idx1].y = constants[i][j] * tmp3 / tmp4;
+					mutual_f[idx2].x = - mutual_f[idx1].x;
+					mutual_f[idx2].y = - mutual_f[idx1].y;
+			}
+		}
+		
+		MPI_Allreduce(mutual_f, combined_f, 2*body_c_square, MPI_LONG_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+		
+		
+		#pragma omp parallel for private (j, tmp2, tmp3, idx1)
+		for (i = low_s; i < high_s; i++) {
+			tmp2 = 0;
+			tmp3 = 0;
+			idx1 = i*body_count;
+			
+			for(j = 0; j < body_count; j++) {
+				
+				if(i != j) {
+					idx2 = idx1 + j;
+					tmp2 += combined_f[idx2].x;
+					tmp3 += combined_f[idx2].y;
+				}
+			}
+			
+			//printf("Total force: %i > (%Lf,%Lf)\n", i,tmp2, tmp3); 
+			
+			/* Acceleration */
+			tmp2 /= bodies[i].mass;
+			tmp3 /= bodies[i].mass;
+			
+			//printf("Acceleration: %i > (%Lf,%Lf)\n", i,tmp2, tmp3);
+			
+			/* Update position and velocity */
+			bodies[i].x = bodies[i].x + bodies[i].vx  * delta + tmp2 * delta_tmp;
+			bodies[i].y = bodies[i].y + bodies[i].vy  * delta + tmp3 * delta_tmp;
+			bodies[i].vx = bodies[i].vx + tmp2;
+			bodies[i].vy = bodies[i].vy + tmp3;	
+		}
+		
+		/* Exchange positions */
+		MPI_Allgatherv(gather_base, gather_sendcount, pos_t, bodies, recvcounts, low, pos_t, MPI_COMM_WORLD);
+		
+		/* Save an image of intermediate results. */
+		if (img_info.gen_img && x % img_info.img_steps == 0 && mpi_self == MASTER) {
+			saveImage(x, bodies, body_count, img_info.offset * meters,
+			img_info.offset * meters, img_info.width, img_info.heigth, img_info.img_prefix);
+		}
+	}
+	
+	/* Consolidate data */
 	MPI_Allgatherv(gather_base, gather_sendcount, body_t, bodies, recvcounts, low, body_t, MPI_COMM_WORLD);
 }
 
@@ -410,7 +558,7 @@ void printBodies(const body *bodies, int body_count) {
 	bodies[i].mass, bodies[i].x, bodies[i].y, bodies[i].vx, bodies[i].vy);
 }
 
-bool examineBodies(const body *bodies, int body_count,long double *max_x, long double *max_y) {
+inline bool examineBodies(const body *bodies, int body_count,long double *max_x, long double *max_y) {
 	bool valid = true;
 	int i,j;
 	*max_x = 0;
@@ -428,6 +576,16 @@ bool examineBodies(const body *bodies, int body_count,long double *max_x, long d
 	
 	return valid;
 }
+
+void vectorSum(void *in, void *inout, int *len, MPI_Datatype *dptr ) { 
+    int i; 
+	vector *v_in = (vector *) in, *v_inout = (vector *) inout;
+	
+	for (i = 0; i < *len; ++i) { 
+		v_inout[i].x = v_in[i].x + v_inout[i].x;
+		v_inout[i].y = v_in[i].y + v_inout[i].y;
+    }
+} 
 
 int m_printf(char *format, ...) {
 	
