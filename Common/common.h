@@ -16,7 +16,7 @@
 #define ABS(x) ((x) < 0 ? (-x) : (x))
 #endif
 
-double seconds(void);
+long double seconds(void);
 int *allocints(int size);
 
 #endif
