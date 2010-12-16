@@ -455,12 +455,17 @@ inline void solve_parallel_mpi_global_newton(body *bodies, int body_count, int s
 	
 	#pragma omp parallel for private (j)
 	for (i = low_s; i < high_s; i++)
-	for (j = i+1; j < body_count; j++)
-	constants[i][j] =  G * bodies[j].mass * bodies[i].mass * delta;
+		for (j = i+1; j < body_count; j++)
+			constants[i][j] =  G * bodies[j].mass * bodies[i].mass * delta;
 	
 	for (x = 0; x < steps; x++) {
+	
+			for (i = 0; i < body_count; i++) {
+				mutual_f[i].x = 0;
+				mutual_f[i].y = 0;
+			}
 		
-		#pragma omp parallel private (sum)
+		#pragma omp parallel private (sum,i, j, tmp1, tmp2, tmp3, tmp4)
 		{
 			
 			for (i = 0; i < body_count; i++) {
@@ -468,7 +473,7 @@ inline void solve_parallel_mpi_global_newton(body *bodies, int body_count, int s
 				sum[i].y = 0;
 			}
 			
-			#pragma omp for private (j, tmp1, tmp2, tmp3, tmp4)
+			#pragma omp for
 			for (i = low_s; i < high_s; i++) {
 				for(j = i+1; j < body_count; j++) {
 					//printf("%i> Computed (%i, %i)\n",mpi_self,i,j);
@@ -486,10 +491,11 @@ inline void solve_parallel_mpi_global_newton(body *bodies, int body_count, int s
 			}
 			
 			for (i = 0; i < body_count; i++) {
+			
 				#pragma omp critical
 				{
-					mutual_f[i].x = sum[i].x;
-					mutual_f[i].y = sum[i].y;
+					mutual_f[i].x += sum[i].x;
+					mutual_f[i].y += sum[i].y;
 				}
 			}
 		}
