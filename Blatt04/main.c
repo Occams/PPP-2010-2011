@@ -404,7 +404,6 @@ inline void solve_parallel_mpi_global_newton(body *bodies, int body_count, int s
 	delta_tmp = delta * 0.5, meters = MAX(img_info.max_x, img_info.max_y);
 	vector *mutual_f = (vector *) malloc(sizeof(vector) * body_count);
 	vector *combined_f = (vector *) malloc(sizeof(vector) * body_count);
-	vector sum[body_count];
 	MPI_Datatype body_t;
 	void *gather_base;
 	
@@ -460,31 +459,31 @@ inline void solve_parallel_mpi_global_newton(body *bodies, int body_count, int s
 	
 	for (x = 0; x < steps; x++) {
 	
-			for (i = 0; i < body_count; i++) {
-				mutual_f[i].x = 0;
-				mutual_f[i].y = 0;
-			}
 		
-		#pragma omp parallel private (sum,i, j, tmp1, tmp2, tmp3, tmp4)
+		#pragma omp parallel private (i, j, tmp1, tmp2, tmp3, tmp4)
 		{
-			
+			vector sum[body_count];
+		
 			for (i = 0; i < body_count; i++) {
 				sum[i].x = 0;
 				sum[i].y = 0;
+				mutual_f[i].x = 0;
+				mutual_f[i].y = 0;
 			}
 			
 			#pragma omp for
 			for (i = low_s; i < high_s; i++) {
 				for(j = i+1; j < body_count; j++) {
 					//printf("%i> Computed (%i, %i)\n",mpi_self,i,j);
+					long double c = constants[i][j];
 					tmp2 = bodies[j].x - bodies[i].x;
 					tmp3 = bodies[j].y - bodies[i].y;
 					tmp4 = tmp2*tmp2 + tmp3*tmp3;
 					tmp4 *= sqrtl(tmp4);
-					tmp1 = constants[i][j] * tmp2 / tmp4;
+					tmp1 = c * tmp2 / tmp4;
 					sum[i].x += tmp1;
 					sum[j].x -= tmp1;
-					tmp1 = constants[i][j] * tmp3 / tmp4;
+					tmp1 = c * tmp3 / tmp4;
 					sum[i].y += tmp1;
 					sum[j].y -= tmp1;
 				}
@@ -509,16 +508,19 @@ inline void solve_parallel_mpi_global_newton(body *bodies, int body_count, int s
 			tmp3 = combined_f[i].y;
 			
 			/* Acceleration */
-			tmp2 /= bodies[i].mass;
-			tmp3 /= bodies[i].mass;
+			long double m = bodies[i].mass;
+			tmp2 /= m;
+			tmp3 /= m;
 			
 			//printf("Acceleration: %i > (%Lf,%Lf)\n", i,tmp2, tmp3);
 			
 			/* Update position and velocity */
-			bodies[i].x = bodies[i].x + bodies[i].vx  * delta + tmp2 * delta_tmp;
-			bodies[i].y = bodies[i].y + bodies[i].vy  * delta + tmp3 * delta_tmp;
-			bodies[i].vx = bodies[i].vx + tmp2;
-			bodies[i].vy = bodies[i].vy + tmp3;	
+			long double vx = bodies[i].vx;
+			long double vy = bodies[i].vy;
+			bodies[i].x = bodies[i].x + vx  * delta + tmp2 * delta_tmp;
+			bodies[i].y = bodies[i].y + vy  * delta + tmp3 * delta_tmp;
+			bodies[i].vx = vx + tmp2;
+			bodies[i].vy = vy + tmp3;
 		}
 		
 		/* Exchange positions */
