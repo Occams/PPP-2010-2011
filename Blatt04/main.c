@@ -471,21 +471,25 @@ inline void solve_parallel_mpi_global_newton(body *bodies, int body_count, int s
 				mutual_f[i].y = 0;
 			}
 			
-			#pragma omp for
+			#pragma omp for nowait
 			for (i = low_s; i < high_s; i++) {
 				for(j = i+1; j < body_count; j++) {
 					//printf("%i> Computed (%i, %i)\n",mpi_self,i,j);
-					long double c = constants[i][j];
+					
 					tmp2 = bodies[j].x - bodies[i].x;
 					tmp3 = bodies[j].y - bodies[i].y;
 					tmp4 = tmp2*tmp2 + tmp3*tmp3;
 					tmp4 *= sqrtl(tmp4);
-					tmp1 = c * tmp2 / tmp4;
-					sum[i].x += tmp1;
-					sum[j].x -= tmp1;
-					tmp1 = c * tmp3 / tmp4;
-					sum[i].y += tmp1;
-					sum[j].y -= tmp1;
+					
+					long double tmp1 = constants[i][j]/tmp4;
+					long double x = tmp1*tmp2;
+					long double y = tmp1*tmp3;
+					
+					sum[i].x += x;
+					sum[i].y += y;
+					
+					sum[j].x -= x;
+					sum[j].y -= y;
 				}
 			}
 			
