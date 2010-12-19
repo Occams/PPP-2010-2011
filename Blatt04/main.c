@@ -471,7 +471,7 @@ inline void solve_parallel_mpi_global_newton(body *bodies, int body_count, int s
 		comp_sum = 0;
 		low[i] = j;
 		
-		for (j; j < body_count && comp_sum <= computations / mpi_processors; j++) {
+		for (; j < body_count && comp_sum <= computations / mpi_processors; j++) {
 			comp_sum += body_count - j+1;
 		}
 		
