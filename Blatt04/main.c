@@ -176,7 +176,7 @@ int main(int argc, char **argv) {
 
 inline void solve_sequential(body *bodies, int body_count, int steps, int delta, imggen_info img_info) {
 	int x, i, j;
-	long double tmp2, tmp3, tmp4, constants[body_count][body_count], 
+	long double tmp1,tmp2, tmp3, tmp4, constants[body_count][body_count], 
 	delta_tmp = delta * 0.5, meters = MAX(img_info.max_x, img_info.max_y);
 	vector mutual_f[body_count][body_count];
 	
@@ -193,8 +193,9 @@ inline void solve_sequential(body *bodies, int body_count, int steps, int delta,
 				tmp3 = bodies[j].y - bodies[i].y;
 				tmp4 = tmp2*tmp2 + tmp3*tmp3;
 				tmp4 *= sqrtl(tmp4);
-				mutual_f[i][j].x = constants[i][j] * (tmp2) / tmp4;
-				mutual_f[i][j].y = constants[i][j] * (tmp3) / tmp4;
+				tmp1 = constants[i][j] / tmp4;
+				mutual_f[i][j].x = tmp1 * tmp2;
+				mutual_f[i][j].y = tmp1 * tmp3;
 			}
 		}
 		
@@ -238,7 +239,7 @@ inline void solve_sequential(body *bodies, int body_count, int steps, int delta,
 
 inline void solve_parallel(body *bodies, int body_count, int steps, int delta, imggen_info img_info) {
 	int x, i, j;
-	long double tmp2, tmp3, tmp4, constants[body_count][body_count], 
+	long double tmp1, tmp2, tmp3, tmp4, constants[body_count][body_count], 
 	delta_tmp = delta * 0.5, meters = MAX(img_info.max_x, img_info.max_y);
 	vector mutual_f[body_count][body_count];
 	
@@ -250,15 +251,16 @@ inline void solve_parallel(body *bodies, int body_count, int steps, int delta, i
 	
 	for (x = 0; x < steps; x++) {
 		
-		#pragma omp parallel for private (j, tmp2, tmp3, tmp4)
+		#pragma omp parallel for private (j, tmp1, tmp2, tmp3, tmp4)
 		for (i = 0; i < body_count; i++) {
 			for(j = i + 1; j < body_count; j++) {
 				tmp2 = bodies[j].x - bodies[i].x;
 				tmp3 = bodies[j].y - bodies[i].y;
 				tmp4 = tmp2*tmp2 + tmp3*tmp3;
 				tmp4 *= sqrtl(tmp4);
-				mutual_f[i][j].x = constants[i][j] * (tmp2) / tmp4;
-				mutual_f[i][j].y = constants[i][j] * (tmp3) / tmp4;
+				tmp1 = constants[i][j] / tmp4;
+				mutual_f[i][j].x = tmp1 * tmp2;
+				mutual_f[i][j].y = tmp1 * tmp3;
 			}
 		}
 		
@@ -505,7 +507,7 @@ inline void solve_parallel_mpi_global_newton(body *bodies, int body_count, int s
 				mutual_f[i].y = 0;
 			}
 			
-			#pragma omp for nowait
+			#pragma omp for
 			for (i = low_s; i < high_s; i++) {
 				for(j = i+1; j < body_count; j++) {
 					//printf("%i> Computed (%i, %i)\n",mpi_self,i,j);
@@ -516,14 +518,14 @@ inline void solve_parallel_mpi_global_newton(body *bodies, int body_count, int s
 					tmp4 *= sqrtl(tmp4);
 					
 					tmp1 = constants[i][j]/tmp4;
-					long double x = tmp1*tmp2;
-					long double y = tmp1*tmp3;
+					long double tmp_x = tmp1*tmp2;
+					long double tmp_y = tmp1*tmp3;
 					
-					sum[i].x += x;
-					sum[i].y += y;
+					sum[i].x += tmp_x;
+					sum[i].y += tmp_y;
 					
-					sum[j].x -= x;
-					sum[j].y -= y;
+					sum[j].x -= tmp_x;
+					sum[j].y -= tmp_y;
 				}
 			}
 			
