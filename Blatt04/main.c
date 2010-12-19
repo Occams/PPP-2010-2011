@@ -53,8 +53,8 @@ int main(int argc, char **argv) {
 	img_info.img_steps = 1000;
 	img_info.img_prefix = "PBM";
 	img_info.offset = 2;
-	img_info.width = 1000;
-	img_info.heigth = 1000;
+	img_info.width = 600;
+	img_info.heigth = 600;
 	
 	/* Read cmdline params */
 	while ((option = getopt(argc,argv,"phs:d:f:o:i:x:gmn")) != -1) {
@@ -454,16 +454,16 @@ inline void solve_parallel_mpi_global_newton(body *bodies, int body_count, int s
 	
 	#pragma omp parallel for private (j)
 	for (i = low_s; i < high_s; i++)
-		for (j = i+1; j < body_count; j++)
-			constants[i][j] =  G * bodies[j].mass * bodies[i].mass * delta;
+	for (j = i+1; j < body_count; j++)
+	constants[i][j] =  G * bodies[j].mass * bodies[i].mass * delta;
 	
 	for (x = 0; x < steps; x++) {
-	
+		
 		
 		#pragma omp parallel private (i, j, tmp1, tmp2, tmp3, tmp4)
 		{
 			vector sum[body_count];
-		
+			
 			for (i = 0; i < body_count; i++) {
 				sum[i].x = 0;
 				sum[i].y = 0;
@@ -481,7 +481,7 @@ inline void solve_parallel_mpi_global_newton(body *bodies, int body_count, int s
 					tmp4 = tmp2*tmp2 + tmp3*tmp3;
 					tmp4 *= sqrtl(tmp4);
 					
-					long double tmp1 = constants[i][j]/tmp4;
+					tmp1 = constants[i][j]/tmp4;
 					long double x = tmp1*tmp2;
 					long double y = tmp1*tmp3;
 					
@@ -494,7 +494,7 @@ inline void solve_parallel_mpi_global_newton(body *bodies, int body_count, int s
 			}
 			
 			for (i = 0; i < body_count; i++) {
-			
+				
 				#pragma omp critical
 				{
 					mutual_f[i].x += sum[i].x;
@@ -549,11 +549,14 @@ void printhelp() {
 	m_printf("Usage:\n");
 	m_printf("-f  Input path of initial setting (DEFAULT: init.dat)\n");
 	m_printf("-i  Prefix for image creation (DEFAULT: PBM)\n");
-	m_printf("-p  BOOL	Parallel execution (DEFAULT: false)\n");
+	m_printf("-o  Output path for saving the resulting state of bodies. (DEFAULT: result.dat)\n");
+	m_printf("-p  BOOL	Parallel execution using OpenMP. (DEFAULT: false)\n");
 	m_printf("-s  INT	Number of simulation steps (DEFAULT: 365)\n");
 	m_printf("-d  INT	Step size of the simulation (DEFAULT: 1)\n");
 	m_printf("-g  BOOL	Generate PBM images of intermediate results. (DEFAULT: false)\n");
 	m_printf("-x  INT	Generate a PBM image of the current setting every x simulation steps (DEFAULT: 1000)\n");
+	m_printf("-m  INT	Used in conjunction with -p. Parallel execution using OpenMP + MPI by locally applying Newton's Third Law for every MPI process.\n");
+	m_printf("-n  INT	Used in conjunction with -p and -m. Parallel execution using OpenMP + MPI by globally applying Newton's Third Law across all MPI processes, thus halfing the required computations.\n");
 	m_printf("-h  This message\n");
 }
 
