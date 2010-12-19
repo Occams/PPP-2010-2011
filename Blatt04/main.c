@@ -423,7 +423,7 @@ inline void solve_parallel_mpi(body *bodies, int body_count, int steps, int delt
 }
 
 inline void solve_parallel_mpi_global_newton(body *bodies, int body_count, int steps, int delta, imggen_info img_info) {
-	int x, i, j, step = body_count/mpi_processors, reduce_send_c = body_count*2,
+	int x, i, j, step = body_count/mpi_processors, reduce_send_c = body_count*2, computations = (body_count -2) * (body_count-1) / 2,comp_sum = 0,
 	low[mpi_processors], high[mpi_processors], recvcounts[mpi_processors], high_s, low_s, gather_sendcount;
 	long double tmp1, tmp2, tmp3, tmp4, constants[body_count][body_count], 
 	delta_tmp = delta * 0.5, meters = MAX(img_info.max_x, img_info.max_y);
@@ -465,11 +465,20 @@ inline void solve_parallel_mpi_global_newton(body *bodies, int body_count, int s
 	/*
 	* Distribution params.
 	*/
+	j = 0;
+	
 	for(i = 0; i < mpi_processors; i++) {
-		low[i] = step * i;
-		high[i] = mpi_processors == 1 ? body_count : step*(i + 1);
-		if(i == mpi_processors - 1) high[i] += body_count%mpi_processors;
+		comp_sum = 0;
+		low[i] = j;
+		
+		for (j; j < body_count && comp_sum <= computations / mpi_processors; j++) {
+			comp_sum += body_count - j+1;
+		}
+		
+		high[i] = j;
+		if(i == mpi_processors - 1) high[i] = body_count;
 		recvcounts[i] = high[i] - low[i];
+		printf("Process %i gets rows %i to %i\n", i, low[i],high[i]);
 	}
 	
 	high_s = high[mpi_self];
