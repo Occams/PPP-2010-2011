@@ -304,7 +304,7 @@ inline void solve_parallel(body *bodies, int body_count, int steps, int delta, i
 }
 
 inline void solve_parallel_mpi(body *bodies, int body_count, int steps, int delta, imggen_info img_info) {
-	int x, i, j, step = body_count/mpi_processors, 
+	int x, i, j,
 	low[mpi_processors], high[mpi_processors], recvcounts[mpi_processors], high_s, low_s, gather_sendcount,
 	computations = (body_count) * (body_count-1) / 2,comp_sum = 0;
 	long double tmp2, tmp3, tmp4, constants[body_count][body_count], 
@@ -435,7 +435,7 @@ inline void solve_parallel_mpi(body *bodies, int body_count, int steps, int delt
 }
 
 inline void solve_parallel_mpi_global_newton(body *bodies, int body_count, int steps, int delta, imggen_info img_info) {
-	int x, i, j, step = body_count/mpi_processors, reduce_send_c = body_count*2, computations = (body_count) * (body_count-1) / 2,comp_sum = 0,
+	int x, i, j, reduce_send_c = body_count*2, computations = (body_count) * (body_count-1) / 2,comp_sum = 0,
 	low[mpi_processors], high[mpi_processors], recvcounts[mpi_processors], high_s, low_s, gather_sendcount;
 	long double tmp1, tmp2, tmp3, tmp4, constants[body_count][body_count], 
 	delta_tmp = delta * 0.5, meters = MAX(img_info.max_x, img_info.max_y);
