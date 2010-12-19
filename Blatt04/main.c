@@ -305,7 +305,8 @@ inline void solve_parallel(body *bodies, int body_count, int steps, int delta, i
 
 inline void solve_parallel_mpi(body *bodies, int body_count, int steps, int delta, imggen_info img_info) {
 	int x, i, j, step = body_count/mpi_processors, 
-	low[mpi_processors], high[mpi_processors], recvcounts[mpi_processors], high_s, low_s, gather_sendcount;
+	low[mpi_processors], high[mpi_processors], recvcounts[mpi_processors], high_s, low_s, gather_sendcount,
+	computations = (body_count) * (body_count-1) / 2,comp_sum = 0;
 	long double tmp2, tmp3, tmp4, constants[body_count][body_count], 
 	delta_tmp = delta * 0.5, meters = MAX(img_info.max_x, img_info.max_y);
 	vector mutual_f[body_count][body_count];
@@ -338,11 +339,20 @@ inline void solve_parallel_mpi(body *bodies, int body_count, int steps, int delt
 	/*
 	* Distribution params.
 	*/
+	j = 0;
+	
 	for(i = 0; i < mpi_processors; i++) {
-		low[i] = step * i;
-		high[i] = mpi_processors == 1 ? body_count : step*(i + 1);
-		if(i == mpi_processors - 1) high[i] += body_count%mpi_processors;
+		comp_sum = 0;
+		low[i] = j;
+		
+		for (; j < body_count && comp_sum <= computations / mpi_processors; j++) {
+			comp_sum += body_count - j+1;
+		}
+		
+		high[i] = j;
+		if(i == mpi_processors - 1) high[i] = body_count;
 		recvcounts[i] = high[i] - low[i];
+		m_printf("Process %i gets rows %i to %i with %i computations\n", i, low[i],high[i], comp_sum);
 	}
 	
 	high_s = high[mpi_self];
