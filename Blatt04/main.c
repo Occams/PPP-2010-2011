@@ -341,10 +341,11 @@ inline void solve_parallel_mpi(body *bodies, int body_count, int steps, int delt
 					tmp3 = bodies[j].y - bodies[i].y;
 					tmp4 = tmp2*tmp2 + tmp3*tmp3;
 					tmp4 *= sqrtl(tmp4);
-					mutual_f[i][j].x = constants[i][j] * tmp2 / tmp4;
-					mutual_f[i][j].y = constants[i][j] * tmp3 / tmp4;
-					//mutual_f[j][i].x = - mutual_f[i][j].x;
-					//mutual_f[j][i].y = - mutual_f[i][j].y;
+					
+					long double tmp1 = constants[i][j]/tmp4;
+					
+					mutual_f[i][j].x = tmp1 * tmp2;
+					mutual_f[i][j].y = tmp1 * tmp3;
 				}
 			}
 		}
