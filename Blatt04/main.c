@@ -478,7 +478,7 @@ inline void solve_parallel_mpi_global_newton(body *bodies, int body_count, int s
 		high[i] = j;
 		if(i == mpi_processors - 1) high[i] = body_count;
 		recvcounts[i] = high[i] - low[i];
-		printf("Process %i gets rows %i to %i\n", i, low[i],high[i]);
+		m_printf("Process %i gets rows %i to %i with %i computations\n", i, low[i],high[i], comp_sum);
 	}
 	
 	high_s = high[mpi_self];
