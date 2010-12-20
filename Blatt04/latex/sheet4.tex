@@ -1,0 +1,207 @@
+\documentclass{article}
+\usepackage[T1]{fontenc}
+\usepackage[ngerman,english]{babel}
+\usepackage[utf8]{inputenc}
+\usepackage[vlined,ruled]{algorithm2e}
+\usepackage{libertine,calc,microtype,parskip,lipsum,booktabs,textcomp,csquotes,
+	enumerate,amssymb,vmargin,fancyhdr,fixltx2e,makeidx,listings,ellipsis,remreset,xcolor,lastpage,caption,fancybox,verbatim,amsmath}
+\usepackage{graphicx}
+\usepackage[pdftex]{hyperref}
+\usepackage{amsmath}
+
+% Title
+\def\thetitle{Komplexitätstheorie --- Blatt 01}
+
+% ------------------------------------------
+% -------- xcolor - (Tango)
+% ------------------------------------------
+
+\definecolor{LightButter}{rgb}{0.98,0.91,0.31}
+\definecolor{LightOrange}{rgb}{0.98,0.68,0.24}
+\definecolor{LightChocolate}{rgb}{0.91,0.72,0.43}
+\definecolor{LightChameleon}{rgb}{0.54,0.88,0.20}
+\definecolor{LightSkyBlue}{rgb}{0.45,0.62,0.81}
+\definecolor{LightPlum}{rgb}{0.68,0.50,0.66}
+\definecolor{LightScarletRed}{rgb}{0.93,0.16,0.16}
+\definecolor{Butter}{rgb}{0.93,0.86,0.25}
+\definecolor{Orange}{rgb}{0.96,0.47,0.00}
+\definecolor{Chocolate}{rgb}{0.75,0.49,0.07}
+\definecolor{Chameleon}{rgb}{0.45,0.82,0.09}
+\definecolor{SkyBlue}{rgb}{0.20,0.39,0.64}
+\definecolor{Plum}{rgb}{0.46,0.31,0.48}
+\definecolor{ScarletRed}{rgb}{0.80,0.00,0.00}
+\definecolor{DarkButter}{rgb}{0.77,0.62,0.00}
+\definecolor{DarkOrange}{rgb}{0.80,0.36,0.00}
+\definecolor{DarkChocolate}{rgb}{0.56,0.35,0.01}
+\definecolor{DarkChameleon}{rgb}{0.30,0.60,0.02}
+\definecolor{DarkSkyBlue}{rgb}{0.12,0.29,0.53}
+\definecolor{DarkPlum}{rgb}{0.36,0.21,0.40}
+\definecolor{DarkScarletRed}{rgb}{0.64,0.00,0.00}
+\definecolor{Aluminium1}{rgb}{0.93,0.93,0.92}
+\definecolor{Aluminium2}{rgb}{0.82,0.84,0.81}
+\definecolor{Aluminium3}{rgb}{0.73,0.74,0.71}
+\definecolor{Aluminium4}{rgb}{0.53,0.54,0.52}
+\definecolor{Aluminium5}{rgb}{0.33,0.34,0.32}
+\definecolor{Aluminium6}{rgb}{0.18,0.20,0.21}
+\definecolor{Brown}{cmyk}{0,0.81,1,0.60}
+\definecolor{OliveGreen}{cmyk}{0.64,0,0.95,0.40}
+\definecolor{CadetBlue}{cmyk}{0.62,0.57,0.23,0}
+
+% ------------------------------------------
+% -------- vmargin
+% ------------------------------------------
+
+%\setmarginsrb{hleftmargini}{htopmargini}{hrightmargini}{hbottommargini}%{hheadheighti}{hheadsepi}{hfootheighti}{hfootskipi}
+\setpapersize{A4}
+\setmarginsrb{3cm}{1cm}{3cm}{1cm}{6mm}{7mm}{5mm}{15mm}
+
+% ------------------------------------------
+% -------- fancyhdr
+% ------------------------------------------
+%\fancyheadoffset[L]{\marginparsep+\marginparwidth}
+\fancyhf{}
+\fancyhead[L]{\bfseries{\nouppercase{\thetitle}}}
+\fancyhead[R]{\bfseries{Seite \thepage\ von \pageref{LastPage}}}
+\renewcommand{\headrulewidth}{0.5pt}
+\renewcommand{\footrulewidth}{0pt}
+\fancypagestyle{plain}{
+\fancyhf{}
+\fancyfoot[R]{\bfseries{Seite \thepage\ von \pageref{LastPage}}}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+}
+
+% ------------------------------------------
+% -------- hyperref
+% ------------------------------------------
+
+\hypersetup{
+	%breaklinks=true,
+	pdfborder={0 0 0},
+	bookmarks=true,         % show bookmarks bar?
+	unicode=false,          % non-Latin characters in Acrobats bookmarks
+	pdftoolbar=true,        % show Acrobats toolbar?
+	pdfmenubar=true,        % show Acrobats menu?
+	pdffitwindow=true,     % window fit to page when opened
+	pdfstartview={FitH},    % fits the width of the page to the window
+	pdftitle={Komplexitätstheorie Übung},    % title
+	pdfauthor={Huber Bastian},     % author
+    pdfsubject={Übungsblatt},   % subject of the document
+    pdfcreator={Huber Bastian},   % creator of the document
+    pdfproducer={Huber Bastian}, % producer of the document
+    pdfkeywords={Komplexitätstheorie, Passau}, % list of keywords
+    pdfnewwindow=true,      % links in new window
+    colorlinks=true,       % false: boxed links; true: colored links
+    linkcolor=black,          % color of internal links
+    citecolor=black,        % color of links to bibliography
+    filecolor=magenta,      % color of file links
+    urlcolor=DarkSkyBlue           % color of external links
+}
+
+% ------------------------------------------
+% -------- listings
+% ------------------------------------------
+ 
+\lstset{
+		breakautoindent=true,
+		breakindent=2em,
+		breaklines=true,
+		tabsize=4,
+		frame=blrt,
+		frameround=tttt,
+		captionpos=b,
+		basicstyle=\scriptsize\ttfamily,
+		keywordstyle={\color{SkyBlue}},
+		%commentstyle={\color{OliveGreen}},
+		stringstyle={\color{OliveGreen}},
+		showspaces=false,
+		%numbers=right,
+		%numberstyle=\scriptsize,
+		%stepnumber=1, 
+		%numbersep=5pt,
+		%showtabs=false
+		prebreak = \raisebox{0ex}[0ex][0ex]{\ensuremath{\hookleftarrow}},
+		aboveskip={1.5\baselineskip},
+		columns=fixed,
+		upquote=true,
+		extendedchars=true
+}
+\fontsize{3mm}{4mm}\selectfont
+
+% ------------------------------------------
+% -------- misc
+% ------------------------------------------
+\newcommand{\bibliographyname}{Bibliography}
+\setcounter{secnumdepth}{3}
+\setcounter{tocdepth}{3}
+\clubpenalty = 10000
+\widowpenalty = 10000
+\displaywidowpenalty = 10000
+\setlength\fboxsep{6pt}
+\setlength\fboxrule{1pt}
+\renewcommand*\oldstylenums[1]{{\fontfamily{fxlj}\selectfont #1}}
+%% Set table margins.
+{\renewcommand{\arraystretch}{2}
+\renewcommand{\tabcolsep}{0.4cm}}
+
+% ------------------------------------------
+% -------- hyphenation rules
+% ------------------------------------------
+\hyphenation{}
+
+\author{Bastian Huber\\(51432) \and Daniel Watzinger\\(51746)}
+\title{\textbf{\huge{\thetitle}}\\\Large\textsc{}\\\large\textsc{}}
+\date{\today}
+
+\begin{document}
+
+% Specify hyphenation rules.
+\hyphenation{}
+
+\maketitle
+
+\pagestyle{fancy}
+
+\section*{Aufgabe 4}
+\begin{enumerate}[a)]
+	\item
+	Die n-Körper Simulation wurde sequentiell und parallel in drei Versionen implementiert. Zum einen existiert eine reine OpenMP Lösung zum anderen zwei verschiedene OpenMP+MPI Lösugen. Eine der beiden OpenMP+MPI Lösungen nutzt Newtons drittes Gesetz global, d.h. macht möglichst wenig Berechnungen, kommuniziert dafür mehr. Die andere macht dafür redundante Berechnungen, kommuniziert dafür weniger.
+	
+	\textit{Messen Sie Berechnungszeit, Speedup und Interaktionsrate mit dem Beispiel spiralgalaxie.dat.}
+	\begin{center}
+		\begin{tabular}{llllllllll}
+			 	        	& Berechnungszeit & Speedup (Vgl. zu squentiell) & Interaktionsrate \\
+			 SEQUENTIAL 	& 68.188415 s		  & 0\%		& 23640672.686121  \\
+			 8 OMP only 		& 15.853464 s		  & 77\%		& 101682509.261535 \\
+			 4 MPI * 2 OMP	& 30.720369 s		  &	55\%		& 52473979.072342	\\
+			 4 MPI * 2 OMP (global Newton)	& 15.066842		  &	78\%		& 106991232.801139	\\
+			 6 MPI * 2 OMP	& 19.870298	s	  &	71\%		& 81127117.469287	\\
+			 6 MPI * 2 OMP (global Newton)	& 9.573131 s		  &	86\%		& 168390049.190081	\\		 
+		\end{tabular}
+		\captionof{table}{Berechnungszeit, Speedup und Interaktionsrate}
+		\label{tab:}
+	\end{center}
+	
+	\item[e)]
+	Indem ein Verlust an Genauigkeit in Kauf genommen wird, kann man die Berechnungsschritte
+	und somit die benötigte Rechendauer reduzieren.
+	\begin{itemize}
+		\item Einführung eines Thresholds: Für eine neue Schwellwertfunktion muss folgendes
+	gelten Threshold(i, j) =  Threshold(j, i). In die Funktion sollten die Massen der beiden
+	Körper i und j sowie deren Distanz relativ zueinander eingehen.
+	Falls Threshold(i,j) < Schwellwert dann wird die Berechnung der Kraft die der Körper
+	i auf j ausübt übersprungen. Diese Kraft
+	wird also als vernachlässigbar eingestuft.
+	
+		\item Betrachte einen Körper i: Teile den Raum in ein Gitternetz auf. In einer Zelle des Gitters
+	können mehrere Körper liegen. Körper die sehr weit entfernt sind von i und in einer Zelle liegen
+	werden nun zu einem massiven Körper zusammengefasst. Für diesen fiktiven Körper gilt:
+		\begin{itemize}
+			\item Position = Schwerpunkt der Körper in der Zelle
+			\item Masse = Summe der Massen der Körper in der Zelle
+		\end{itemize}
+	Nun wird nur die Kraft die der fiktive Körper auf i ausübt berechnet (und umgekehrt).
+	\end{itemize}
+\end{enumerate}
+
+\end{document}
