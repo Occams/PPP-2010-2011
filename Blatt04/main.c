@@ -3,7 +3,8 @@
 *	Indem ein Verlust an Genauigkeit in Kauf genommen wird, kann man die Berechnungsschritte
 *	und somit die benötigte Rechendauer reduzieren.
 *	- Einführung eines Thresholds: Für eine neue Schwellwertfunktion muss folgendes
-*	gelten Threshold(i, j) =  Threshold(j, i).
+*	gelten Threshold(i, j) =  Threshold(j, i). In die Funktion sollten die Massen der beiden
+	Körper i und j sowie deren Distanz relativ zueinander eingehen.
 *	Falls Threshold(i,j) < Schwellwert dann wird die Berechnung der Kraft die der Körper
 *	i auf j ausübt übersprungen. Diese Kraft
 *	wird also als vernachlässigbar eingestuft.
@@ -122,7 +123,8 @@ int main(int argc, char **argv) {
 	}
 	
 	totalImpulse(bodies, body_count, &px, &py);
-	m_printf("Initial total impulse: px = %e , py = %e\n", px, py);
+	m_printf("Initial total impulse: px = %Le , py = %Le\n", px, py);
+	MPI_Barrier(MPI_COMM_WORLD);
 	start = seconds();
 	
 	if (parallel) {
@@ -146,9 +148,12 @@ int main(int argc, char **argv) {
 		solve_sequential(bodies, body_count, steps, delta, img_info);
 	}
 	
-	m_printf("Rate of interactions: %Lf\n", interactions(body_count, steps, seconds() - start));
+	MPI_Barrier(MPI_COMM_WORLD);
+	long double elapsed = seconds() - start;
+	m_printf("Rate of interactions: %Lf\n", interactions(body_count, steps, elapsed));
+	m_printf("Elapsed time: %Lf\n", elapsed);
 	totalImpulse(bodies, body_count, &px, &py);
-	m_printf("Resulting total impulse: px = %e , py = %e\n", px, py);
+	m_printf("Resulting total impulse: px = %Le , py = %Le\n", px, py);
 	
 	/* Write result to file */
 	FILE *f = fopen(output,"w");
@@ -592,7 +597,7 @@ void printBodies(const body *bodies, int body_count) {
 	int i;
 	
 	for (i = 0; i < body_count; i++)
-		m_printf("%i> Mass: %e , Position: (%e,%e) , Velocity: (%e,%e)\n",i,
+		m_printf("%i> Mass: %Le , Position: (%Le,%Le) , Velocity: (%Le,%Le)\n",i,
 			bodies[i].mass, bodies[i].x, bodies[i].y, bodies[i].vx, bodies[i].vy);
 }
 

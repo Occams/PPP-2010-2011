@@ -1,0 +1,60 @@
+Initial total impulse: px = -1.000000e+46 , py = -3.000000e+45
+SEQUENTIAL
+Rate of interactions: 23640672.686121
+Elapsed time: 68.188415
+Resulting total impulse: px = -1.000000e+46 , py = -3.000000e+45
+
+>>>8 OMP
+Initial total impulse: px = -1.000000e+46 , py = -3.000000e+45
+PARALLEL
+OMP
+Rate of interactions: 101682509.261535
+Elapsed time: 15.853464
+Resulting total impulse: px = -1.000000e+46 , py = -3.000000e+45
+
+>>>4 MPI + 2 OMP
+Initial total impulse: px = -1.000000e+46 , py = -3.000000e+45
+PARALLEL
+MPI+OMP
+Rate of interactions: 52473979.072342
+Elapsed time: 30.720369
+Resulting total impulse: px = -1.000000e+46 , py = -3.000000e+45
+Initial total impulse: px = -1.000000e+46 , py = -3.000000e+45
+PARALLEL
+MPI+OMP
+GLOBAL NEWTON
+Rate of interactions: 106991232.801139
+Elapsed time: 15.066842
+Resulting total impulse: px = -1.000000e+46 , py = -3.000000e+45
+Initial total impulse: px = -1.000000e+46 , py = -3.000000e+45
+PARALLEL
+OMP
+Initial total impulse: px = -1.000000e+46 , py = -3.000000e+45
+PARALLEL
+OMP
+
+>>>6 MPI + 2 OMP
+Initial total impulse: px = -1.000000e+46 , py = -3.000000e+45
+PARALLEL
+MPI+OMP
+Rate of interactions: 81127117.469287
+Elapsed time: 19.870298
+Resulting total impulse: px = -1.000000e+46 , py = -3.000000e+45
+
+Initial total impulse: px = -1.000000e+46 , py = -3.000000e+45
+PARALLEL
+MPI+OMP
+GLOBAL NEWTON
+Rate of interactions: 168390049.190081
+Elapsed time: 9.573131
+Resulting total impulse: px = -1.000000e+46 , py = -3.000000e+45
+
+>>> 200000 Schritte auf 6 MPI + 2 OMP in 227.280506 also 500k Schritte in ca. 9,5 Minuten
+Initial total impulse: px = -1.000000e+46 , py = -3.000000e+45
+PARALLEL
+MPI+OMP
+GLOBAL NEWTON
+Rate of interactions: -9324769.665907
+Elapsed time: 227.280506
+Resulting total impulse: px = -1.000000e+46 , py = -3.000000e+45
+
