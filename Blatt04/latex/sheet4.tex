@@ -168,6 +168,7 @@
 	Die n-Körper Simulation wurde sequentiell und parallel in drei Versionen implementiert. Zum einen existiert eine reine OpenMP Lösung zum anderen zwei verschiedene OpenMP+MPI Lösugen. Eine der beiden OpenMP+MPI Lösungen nutzt Newtons drittes Gesetz global, d.h. macht möglichst wenig Berechnungen, kommuniziert dafür mehr. Die andere macht dafür redundante Berechnungen, kommuniziert dafür weniger.
 	
 	\textit{Messen Sie Berechnungszeit, Speedup und Interaktionsrate mit dem Beispiel spiralgalaxie.dat.}
+	
 	\begin{center}
 		\begin{tabular}{llllllllll}
 			 	        	& Berechnungszeit & Speedup (Vgl. zu squentiell) & Interaktionsrate \\
@@ -178,7 +179,7 @@
 			 6 MPI * 2 OMP	& 19.870298	s	  &	3.43		& 81127117.469287	\\
 			 6 MPI * 2 OMP (global Newton)	& 9.573131 s		  &	7.12		& 168390049.190081	\\		 
 		\end{tabular}
-		\captionof{table}{Berechnungszeit, Speedup und Interaktionsrate}
+		\captionof{table}{Berechnungszeit, Speedup und Interaktionsrate (Steps 10000, $\Delta_t$ 31600000000) }
 		\label{tab:}
 	\end{center}
 	
