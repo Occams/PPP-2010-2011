@@ -483,7 +483,7 @@ inline void solve_parallel_mpi_global_newton(body *bodies, int body_count, int s
 				mutual_f[i].y = 0;
 			}
 			
-			#pragma omp for
+			#pragma omp for nowait
 			for (i = low_s; i < high_s; i++) {
 				for(j = i+1; j < body_count; j++) {
 					
