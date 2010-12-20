@@ -1,22 +1,3 @@
-/*
-*	(Aufgabe 4e)
-*	Indem ein Verlust an Genauigkeit in Kauf genommen wird, kann man die Berechnungsschritte
-*	und somit die benötigte Rechendauer reduzieren.
-*	- Einführung eines Thresholds: Für eine neue Schwellwertfunktion muss folgendes
-*	gelten Threshold(i, j) =  Threshold(j, i). In die Funktion sollten die Massen der beiden
-	Körper i und j sowie deren Distanz relativ zueinander eingehen.
-*	Falls Threshold(i,j) < Schwellwert dann wird die Berechnung der Kraft die der Körper
-*	i auf j ausübt übersprungen. Diese Kraft
-*	wird also als vernachlässigbar eingestuft.
-*	
-*	- Betrachte einen Körper i: Teile den Raum in ein Gitternetz auf. In einer Zelle des Gitters
-*	können mehrere Körper liegen. Körper die sehr weit entfernt sind von i und in einer Zelle liegen
-*	werden nun zu einem massiven Körper zusammengefasst. Für diesen fiktiven Körper gilt:
-*		-> Position = Schwerpunkt der Körper in der Zelle
-*		-> Masse = Summe der Massen der Körper in der Zelle
-*	Nun wird nur die Kraft die der fiktive Körper auf i ausübt berechnet (und umgekehrt).
-*/
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/time.h>
