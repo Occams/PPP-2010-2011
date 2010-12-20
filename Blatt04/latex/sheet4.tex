@@ -10,7 +10,7 @@
 \usepackage{amsmath}
 
 % Title
-\def\thetitle{Komplexitätstheorie --- Blatt 01}
+\def\thetitle{Praktische Parallelprogrammierung --- Blatt 04}
 
 % ------------------------------------------
 % -------- xcolor - (Tango)
@@ -168,17 +168,18 @@
 	Die n-Körper Simulation wurde sequentiell und parallel in drei Versionen implementiert. Zum einen existiert eine reine OpenMP Lösung zum anderen zwei verschiedene OpenMP+MPI Lösugen. Eine der beiden OpenMP+MPI Lösungen nutzt Newtons drittes Gesetz global, d.h. macht möglichst wenig Berechnungen, kommuniziert dafür mehr. Die andere macht dafür redundante Berechnungen, kommuniziert dafür weniger.
 	
 	\textit{Messen Sie Berechnungszeit, Speedup und Interaktionsrate mit dem Beispiel spiralgalaxie.dat.}
+	
 	\begin{center}
 		\begin{tabular}{llllllllll}
 			 	        	& Berechnungszeit & Speedup (Vgl. zu squentiell) & Interaktionsrate \\
-			 SEQUENTIAL 	& 68.188415 s		  & 0\%		& 23640672.686121  \\
-			 8 OMP only 		& 15.853464 s		  & 77\%		& 101682509.261535 \\
-			 4 MPI * 2 OMP	& 30.720369 s		  &	55\%		& 52473979.072342	\\
-			 4 MPI * 2 OMP (global Newton)	& 15.066842		  &	78\%		& 106991232.801139	\\
-			 6 MPI * 2 OMP	& 19.870298	s	  &	71\%		& 81127117.469287	\\
-			 6 MPI * 2 OMP (global Newton)	& 9.573131 s		  &	86\%		& 168390049.190081	\\		 
+			 SEQUENTIAL 	& 68.188415 s		  & 1		& 23640672.686121  \\
+			 8 OMP only 		& 15.853464 s		  & 4.30		& 101682509.261535 \\
+			 4 MPI * 2 OMP	& 30.720369 s		  &	2.22		& 52473979.072342	\\
+			 4 MPI * 2 OMP (global Newton)	& 15.066842		  &	4.53		& 106991232.801139	\\
+			 6 MPI * 2 OMP	& 19.870298	s	  &	3.43		& 81127117.469287	\\
+			 6 MPI * 2 OMP (global Newton)	& 9.573131 s		  &	7.12		& 168390049.190081	\\		 
 		\end{tabular}
-		\captionof{table}{Berechnungszeit, Speedup und Interaktionsrate}
+		\captionof{table}{Berechnungszeit, Speedup und Interaktionsrate (Steps 10000, $\Delta_t$ 31600000000) }
 		\label{tab:}
 	\end{center}
 	
