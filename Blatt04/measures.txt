@@ -26,12 +26,6 @@ GLOBAL NEWTON
 Rate of interactions: 106991232.801139
 Elapsed time: 15.066842
 Resulting total impulse: px = -1.000000e+46 , py = -3.000000e+45
-Initial total impulse: px = -1.000000e+46 , py = -3.000000e+45
-PARALLEL
-OMP
-Initial total impulse: px = -1.000000e+46 , py = -3.000000e+45
-PARALLEL
-OMP
 
 >>>6 MPI + 2 OMP
 Initial total impulse: px = -1.000000e+46 , py = -3.000000e+45

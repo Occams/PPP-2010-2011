@@ -15,7 +15,7 @@
 # 500.000 Schritte in weniger als 30 Minuten schaffen.
 #
 402
-1.0000e41  9.4680e20  9.4680e20  -1.0000e5  -3.0000e4  # vorbeifliegendes massives Objekt
+1.0000e43  9.4680e20  9.4680e20  -1.0000e5  -3.0000e4  # vorbeifliegendes massives Objekt
 2.0000e41  0.0000e0  0.0000e0  0.0000e0  0.0000e0  # Massives Objekt im Zentrum
 1.0000e31  9.4680e17  0.0000e0  -0.0000e0  3.7547e6  # Stern 0
 1.0000e31  1.0038e18  -6.3796e16  2.3104e5  3.6355e6  # Stern 1
