@@ -86,8 +86,14 @@ void uint8_image_to_blocks(const uint8_t *image, int rows, int columns, int16_t 
 }
 
 kernel void encode_frame(global uint8_t *image, uint rows, uint columns, uint format, global uint8_t *frame) {
-	int rows_idx = get_global_id(1), cols_idx = get_global_id(0), idx = rows_idx*8*columns + cols_idx*64;
-	
+	int px = (columns/get_global_size(0))*get_global_id(0);
+	int py = (rows/get_global_size(1))*get_global_id(1);
+    px += (px/get_local_size(0))*get_local_id(0);
+    py += (py/get_local_size(1))*get_local_id(1);
+    
+    int rows_idx = py/8;
+    int cols_idx = px/8;
+	int idx = rows_idx*8*columns + cols_idx*64;
 	for (int y = 0; y<8; y++) {
 		for (int x = 0; x<8; x++) {
 				frame[idx] = image[(rows_idx*8 + y) * columns + cols_idx*8 + x] - 128;
