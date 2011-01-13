@@ -105,8 +105,8 @@ static ppp_frame *encode_opencl(uint8_t *image, const ppp_image_info *info,
     /* Set the work group size and global number of work items.
      */
     size_t work_dims = 2;
-    size_t global_work_size[] = { columns/2, rows/2 };
-    size_t local_work_size[] = { 4, 4 };
+    size_t global_work_size[] = { columns/8, rows/8 };
+    size_t local_work_size[] = { 1,1 };
 
 
     /* Allocate space for the result. */
@@ -127,6 +127,7 @@ static ppp_frame *encode_opencl(uint8_t *image, const ppp_image_info *info,
      */
     imageGPU = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
                               sizeof(*image)*rows*columns, (void *)image, NULL);
+							  
     /* Allocate the buffer memory object for the result.
      * We need at most 'max_enc_bytes' to represent the result.
      */
