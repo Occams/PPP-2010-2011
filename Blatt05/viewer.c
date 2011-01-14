@@ -1,5 +1,6 @@
 #include <getopt.h>
 #include <math.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -34,6 +35,7 @@ int decode_block(const uint8_t *data, const ppp_image_info *info,
     int16_t data16[64], decoded[64];
     const int columns = info->columns;
     int off, len;
+    bool dec_error;
     /* 'img' points to the upper left corner of the block to decode
      * in 'image'. */
     uint8_t * const img = image + yy*columns + xx;
@@ -56,7 +58,10 @@ int decode_block(const uint8_t *data, const ppp_image_info *info,
         return 64;
         break;
     case PPP_IMGFMT_COMPRESSED_DCT:
-        len = uncompress_block(data, data16);
+        len = uncompress_block(data, data16, &dec_error);
+        if (dec_error)
+            fprintf(stderr, "Warning: block uncompression error for block at "
+                    "top=%d, left=%d\n", yy, xx);
         iqdct_block(data16, decoded);
         off = 0;
 

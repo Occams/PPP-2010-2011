@@ -1,4 +1,5 @@
 #include <math.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -367,25 +368,38 @@ int max_encoded_length(int n_values) {
 }
 
 int uncompress_data(const uint8_t *codes, int max_input_length,
-                    int n_values, int16_t *output) {
+                    int n_values, int16_t *output, bool *dec_error) {
     const int max_nibbles = 2 * max_input_length;
     uint8_t nibble(int n) {
         uint8_t v;
-       if (n >= max_nibbles)
+        if (n >= max_nibbles) {
+            *dec_error = true;
             return 0;
+        }
         v = codes[n/2];
         return  (n & 1) ? (v&0xF) : (v>>4);
     }
     
+    *dec_error = false;
+
     int i = 0, pos = 0;
     while (i < n_values) {
-        uint8_t c = nibble(pos++);
+        const uint8_t c = nibble(pos++);
         if (c == 0) {
             memset(output+i, 0, (n_values-i)*sizeof(*output));
             i = n_values;
         } else if (c < 8) {
-            memset(output+i, 0, c*sizeof(*output));
-            i += c;
+            /* Check that we do not overrun the output buffer
+             * (in case of incorrect codes). */
+            const int remaining_space = n_values - i;
+            int n_zeros; 
+            if (c > remaining_space) {
+                n_zeros = remaining_space;
+                *dec_error = true;
+            } else
+                n_zeros = c;
+            memset(output+i, 0, n_zeros*sizeof(*output));
+            i += n_zeros;
         } else if (c == 0x8)
             output[i++] = 1;
         else if (c == 0x9)
@@ -410,6 +424,12 @@ int uncompress_data(const uint8_t *codes, int max_input_length,
             output[i++] = -(v + 19);
         }
     }
+
+    /* When the number of (nibble) codes is odd, a 0 nibble
+     * has to follow the last used nibble.
+     */
+    if ((pos&1) != 0 && nibble(pos) != 0)
+        *dec_error = true;
     return (pos+1)/2;
 }
 
@@ -418,18 +438,20 @@ int uncompress_data(const uint8_t *codes, int max_input_length,
  * the decompressed 64 values are stored in 'output'.
  * Up to 96 bytes from 'codes' are conusmed to obtain the 64
  * values. Return the number of bytes consumed from 'codes'.
+ * When a decoding error occurs because the beginning of 'codes'
+ * do not encode exactly 64 values, 'dec_error' is set to true.
  */
-int uncompress_block(const uint8_t *codes, int16_t *output) {
-    return uncompress_data(codes, 96, 64, output);
+int uncompress_block(const uint8_t *codes, int16_t *output, bool *dec_error) {
+    return uncompress_data(codes, 96, 64, output, dec_error);
 }
 
 /*
  * Call uncompress_block and iqdct_block on 'input'
  * returning the result in 'block'.
  */
-int uncompress_iqdct_block(const uint8_t *input, int16_t *block) {
+int uncompress_iqdct_block(const uint8_t *input, int16_t *block, bool *dec_error) {
     int16_t dct[64];
-    int len = uncompress_block(input, dct);
+    int len = uncompress_block(input, dct, dec_error);
     iqdct_block(dct, block);
     return len;
 }

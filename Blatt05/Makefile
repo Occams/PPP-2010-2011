@@ -41,4 +41,4 @@ ppp_pnm.o: ppp_pnm.c ppp_pnm.h
 
 .PHONY: clean
 clean:
-	rm -f *.o *.s *.a image_encoder viewer dct_flops
+	rm -f *.o *.s *.a *.pgm image_encoder viewer dct_flops
