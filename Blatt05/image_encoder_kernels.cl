@@ -122,12 +122,12 @@ kernel void encode_frame(global uint8_t *image,
 	
 	if (format == 1 || format == 2) {
 		
-		uint8_t tmp[64];
+		__private int16_t tmp[64];
 		int r, c, i;
 		
 		for (r=0; r<8; r++) {
 			for (c=0; c<8; c++) {
-				float acc = 0.0f;
+				int16_t acc = 0.0f;
 				for (i=0; i<8; i++)
 					acc += frame[idx + 8*r+i] * dct_coeffs_tr[c*8+i];
 				tmp[r*8+c] = acc;
@@ -136,7 +136,7 @@ kernel void encode_frame(global uint8_t *image,
 		
 		for (r=0; r<8; r++) {
 			for (c=0; c<8; c++) {
-				float acc = 0.0f;
+				int16_t acc = 0.0f;
 				for (i=0; i<8; i++)
 					acc += tmp[r*8 + i] * dct_coeffs_tr[i*8+c];
 				frame[idx + r*8+c] = acc;
