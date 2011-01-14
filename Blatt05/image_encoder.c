@@ -126,13 +126,17 @@ static ppp_frame *encode_opencl(uint8_t *image, const ppp_image_info *info,
      * We request that the image (from the host) is copied to the device.
      */
     imageGPU = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-                              sizeof(*image)*rows*columns, (void *)image, NULL);
-							  
+                              sizeof(*image)*rows*columns, (void *)image, &res);
+    if (res != CL_SUCCESS)
+        error_and_abort("Could not allocate imageGPU", res);
     /* Allocate the buffer memory object for the result.
      * We need at most 'max_enc_bytes' to represent the result.
      */
     frameGPU = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                              max_enc_bytes, NULL, NULL);
+                              max_enc_bytes, NULL, &res);
+    if (res != CL_SUCCESS)
+        error_and_abort("Could not allocate frameGPU", res);
+
 
     /*
      * Load the OpenCL program from file "image_encoder_kernels.cl"
