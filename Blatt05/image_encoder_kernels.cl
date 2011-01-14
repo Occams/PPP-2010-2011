@@ -7,6 +7,12 @@
 typedef short int16_t;
 typedef uchar uint8_t;
 
+enum ppp_image_format {
+    PPP_IMGFMT_UNCOMPRESSED_BLOCKS = 0,
+    PPP_IMGFMT_UNCOMPRESSED_DCT    = 1,
+    PPP_IMGFMT_COMPRESSED_DCT      = 2
+};
+
 
 
 
@@ -70,44 +76,36 @@ constant int quantization_factors[64] = {
 };
 
 /*
- * Given two 8x8 matrices A and B (stored in row-major),
- * compute C := A*B*A^tr
- * (where A^tr denotes the transposition of A).
+ * Computes M = A*M*A_tr
  */
-// static void mmm(float A[8][8], const float *B, float *C) {
-    // float BAtr_tr[8][8];
+void mm_tr(constant float A_tr[64], float *M) {
+    __private float AM[64];
 
-    // /* Compute B*A^tr and store it result (in transposed
-     // * form) in BAtr_tr. The result is stored in transposed
-     // * form becase the second step below can access BAtr_tr
-     // * row-wise, then.
-     // */
-    // for (int r=0; r<8; r++) {       /* row of B */
-        // for (int c=0; c<8; c++) {   /* column of A^tr */
-            // float acc = 0.0f;
-            // for (int i=0; i<8; i++)
-                // acc += B[8*r+i] * A[c][i];
-            // BAtr_tr[c][r] = acc;
-        // }
-    // }
+    /* Compute AM = A*M */
+    for (int y=0; y<8; y++) {
+        for (int x=0; x<8; x++) {
+            float acc = 0.0f;
+            for (int i=0; i<8; i++)
+                acc += A_tr[i*8+y] * M[8*i+x]; /* A_tr must be addressed so that we get A */
+            AM[y*8+x] = acc;
+        }
+    }
 
-    // /* Compute A*(B*A_tr). Since (B*A_tr) is stored
-     // * in BAtr_tr in transposed form, BAtr_tr is accessed
-     // * row-wise. */
-    // for (int r=0; r<8; r++) {      /* row of A */
-        // for (int c=0; c<8; c++) {  /* column of B*A^tr (= row of BAtr_tr) */
-            // float acc = 0.0f;
-            // for (int i=0; i<8; i++)
-                // acc += A[r][i] * BAtr_tr[c][i];
-            // C[8*r+c] = acc;
-        // }
-    // }
-// }
-
+    /* Compute M = (AM)*A_tr */
+    for (int y=0; y<8; y++) {
+        for (int x=0; x<8; x++) {
+            float acc = 0.0f;
+            for (int i=0; i<8; i++)
+                acc += AM[y*8+i] * A_tr[8*i+x]; /* A_tr must be addressed so that we get A */
+            M[y*8+x] = acc;
+        }
+    }
+}
 
 kernel void encode_frame(global uint8_t *image,
-                         uint rows, uint columns, uint format,
+                         uint rows, uint columns, enum ppp_image_format format,
                          global uint8_t *frame) {
+    int16_t i16Frame[64];
     int block_col = get_global_id(0);
     int block_row = get_global_id(1);
 	int block_num = block_col + get_global_size(0)* block_row;
@@ -115,53 +113,26 @@ kernel void encode_frame(global uint8_t *image,
 	
 	for (int y = 0; y<8; y++) {
 		for (int x = 0; x<8; x++) {
-				frame[idx] = image[(block_row*8 + y) * columns + block_col*8 + x] - 128;
-				idx++;
+				i16Frame[8*y+x] = (int16_t)image[(block_row*8 + y) * columns + block_col*8 + x] - 128;
 		}
 	}
 	
-	if (format == 1 || format == 2) {
-		
-		__private int16_t tmp[64];
-		int r, c, i;
-		
-		for (r=0; r<8; r++) {
-			for (c=0; c<8; c++) {
-				int16_t acc = 0.0f;
-				for (i=0; i<8; i++)
-					acc += frame[idx + 8*r+i] * dct_coeffs_tr[c*8+i];
-				tmp[r*8+c] = acc;
-			}
-		}
-		
-		for (r=0; r<8; r++) {
-			for (c=0; c<8; c++) {
-				int16_t acc = 0.0f;
-				for (i=0; i<8; i++)
-					acc += tmp[r*8 + i] * dct_coeffs_tr[i*8+c];
-				frame[idx + r*8+c] = acc;
-			}
-		}
-		
-		for (r=0; r<8; r++) {
-			for (c=0; c<8; c++) {
-				frame[permut[r*8+c]] = frame[r*8+c] / quantization_factors[r*8+c];
-			}
-		}
-		
+	
+	if(format == PPP_IMGFMT_UNCOMPRESSED_DCT || format == PPP_IMGFMT_COMPRESSED_DCT) {
+	    float fFrame[64];
+        for(int i = 0; i < 64; i++)
+            fFrame[i] = i16Frame[i];
+            
+	    mm_tr(dct_coeffs_tr, fFrame);
 	}
 	
-	
-	
-	
-	
-	//printf("Format: %i\n", format);
-	// printf("get_global_size(0) = %i , get_global_size(1) = %i\n", get_global_size(0), get_global_size(1));
-	// printf("get_global_id(0) = %i , get_global_id(1) = %i\n", get_global_id(0), get_global_id(1));
-	// printf("get_local_size(0) = %i , get_local_size(1) = %i\n", get_local_size(0), get_local_size(1));
-	// printf("get_local_id(0) = %i , get_local_id(1) = %i\n", get_local_id(0), get_local_id(1));
-	// printf("get_num_groups(0) = %i , get_num_groups(1) = %i\n", get_num_groups(0), get_num_groups(1));
-	// printf("get_group_id(0) = %i , get_group_id(1) = %i\n", get_group_id(0), get_group_id(1));
-	// printf("-----------------\n");
+	/*
+	 * Copy back... 
+	 */
+	for (int y = 0; y<64; y++) {
+		for (int x = 0; x<8; x++) {
+		        frame[idx++] = i16Frame[8*y+x];
+		}
+	}
 }
 
