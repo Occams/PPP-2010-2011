@@ -8,6 +8,8 @@ typedef short int16_t;
 typedef uchar uint8_t;
 
 
+
+
 /*
  * OpenCL extension: allow printf() in kernels
  * (AMD/ATI implementation only)
@@ -67,13 +69,49 @@ constant int quantization_factors[64] = {
     72,  92,  95,  98, 112, 100, 103,  99
 };
 
+/*
+ * Given two 8x8 matrices A and B (stored in row-major),
+ * compute C := A*B*A^tr
+ * (where A^tr denotes the transposition of A).
+ */
+// static void mmm(float A[8][8], const float *B, float *C) {
+    // float BAtr_tr[8][8];
+
+    // /* Compute B*A^tr and store it result (in transposed
+     // * form) in BAtr_tr. The result is stored in transposed
+     // * form becase the second step below can access BAtr_tr
+     // * row-wise, then.
+     // */
+    // for (int r=0; r<8; r++) {       /* row of B */
+        // for (int c=0; c<8; c++) {   /* column of A^tr */
+            // float acc = 0.0f;
+            // for (int i=0; i<8; i++)
+                // acc += B[8*r+i] * A[c][i];
+            // BAtr_tr[c][r] = acc;
+        // }
+    // }
+
+    // /* Compute A*(B*A_tr). Since (B*A_tr) is stored
+     // * in BAtr_tr in transposed form, BAtr_tr is accessed
+     // * row-wise. */
+    // for (int r=0; r<8; r++) {      /* row of A */
+        // for (int c=0; c<8; c++) {  /* column of B*A^tr (= row of BAtr_tr) */
+            // float acc = 0.0f;
+            // for (int i=0; i<8; i++)
+                // acc += A[r][i] * BAtr_tr[c][i];
+            // C[8*r+c] = acc;
+        // }
+    // }
+// }
+
 
 kernel void encode_frame(global uint8_t *image,
                          uint rows, uint columns, uint format,
                          global uint8_t *frame) {
     int block_col = get_global_id(0);
     int block_row = get_global_id(1);
-	int idx = block_row*8*columns + block_col*64;
+	int block_num = block_col + get_global_size(0)* block_row;
+	int idx = block_num * 64;
 	
 	for (int y = 0; y<8; y++) {
 		for (int x = 0; x<8; x++) {
@@ -82,6 +120,42 @@ kernel void encode_frame(global uint8_t *image,
 		}
 	}
 	
+	if (format == 1 || format == 2) {
+		
+		uint8_t tmp[64];
+		int r, c, i;
+		
+		for (r=0; r<8; r++) {
+			for (c=0; c<8; c++) {
+				float acc = 0.0f;
+				for (i=0; i<8; i++)
+					acc += frame[idx + 8*r+i] * dct_coeffs_tr[c*8+i];
+				tmp[r*8+c] = acc;
+			}
+		}
+		
+		for (r=0; r<8; r++) {
+			for (c=0; c<8; c++) {
+				float acc = 0.0f;
+				for (i=0; i<8; i++)
+					acc += tmp[r*8 + i] * dct_coeffs_tr[i*8+c];
+				frame[idx + r*8+c] = acc;
+			}
+		}
+		
+		for (r=0; r<8; r++) {
+			for (c=0; c<8; c++) {
+				frame[permut[r*8+c]] = frame[r*8+c] / quantization_factors[r*8+c];
+			}
+		}
+		
+	}
+	
+	
+	
+	
+	
+	//printf("Format: %i\n", format);
 	// printf("get_global_size(0) = %i , get_global_size(1) = %i\n", get_global_size(0), get_global_size(1));
 	// printf("get_global_id(0) = %i , get_global_id(1) = %i\n", get_global_id(0), get_global_id(1));
 	// printf("get_local_size(0) = %i , get_local_size(1) = %i\n", get_local_size(0), get_local_size(1));
