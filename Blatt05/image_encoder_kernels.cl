@@ -107,7 +107,7 @@ void mm_tr(constant float A_tr[64], float *M) {
  * Return the value for the first nibble of the
  * encoding of 'val' (val /= 0).
  */
-static uint8_t first_nibble(int16_t val) {
+uint8_t first_nibble(int16_t val) {
     if (val == 1)
         return 0x8;
     else if (val == 2)
@@ -132,8 +132,9 @@ static uint8_t first_nibble(int16_t val) {
  * 'input'. Returns the number of bytes used in 'codes' (i.e.,
  * the length of the compressed data in bytes).
  */
-int compress_data(const int16_t *input, int n_values, uint8_t *codes) {
-    uint8_t nibbles[3*n_values];
+int compress_data(const int16_t *input, global uint8_t *codes) {
+    const int n_values = 64;
+    uint8_t nibbles[3*64];
 
     /* Walk through the values. */
     int zeros = 0, pos = 0;
@@ -188,7 +189,7 @@ int compress_data(const int16_t *input, int n_values, uint8_t *codes) {
 
 kernel void encode_frame(global uint8_t *image,
                          uint rows, uint columns, uint format,
-                         global uint8_t *frame) {
+                         global uint8_t *frame, global uint8_t *frameEncIx) {
     int16_t i16Frame[64];
     int block_col = get_global_id(0);
     int block_row = get_global_id(1);
@@ -214,7 +215,7 @@ kernel void encode_frame(global uint8_t *image,
 	}
 	
 	if(format == PPP_IMGFMT_COMPRESSED_DCT) {
-	    compress_data(i16Frame, 64, frame);
+	    frameEncIx[block_num] = compress_data(i16Frame, &(frame[block_num*96]));
 	} else {
 	    /*
 	     * Copy back... 

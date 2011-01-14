@@ -99,7 +99,7 @@ static ppp_frame *encode_opencl(uint8_t *image, const ppp_image_info *info,
     cl_command_queue queue;
     cl_program program;
     cl_kernel kernel;
-    cl_mem imageGPU, frameGPU;
+    cl_mem imageGPU, frameGPU, frameGPUComprIx;
     cl_int res;
 
     /* Set the work group size and global number of work items.
@@ -129,13 +129,23 @@ static ppp_frame *encode_opencl(uint8_t *image, const ppp_image_info *info,
                               sizeof(*image)*rows*columns, (void *)image, &res);
     if (res != CL_SUCCESS)
         error_and_abort("Could not allocate imageGPU", res);
+        
     /* Allocate the buffer memory object for the result.
      * We need at most 'max_enc_bytes' to represent the result.
      */
     frameGPU = clCreateBuffer(context, CL_MEM_READ_WRITE,
                               max_enc_bytes, NULL, &res);
+                              
     if (res != CL_SUCCESS)
         error_and_abort("Could not allocate frameGPU", res);
+        
+    if(info->format == PPP_IMGFMT_COMPRESSED_DCT) {
+        frameGPUComprIx = clCreateBuffer(context, CL_MEM_READ_WRITE,
+                              (rows*columns)/64, NULL, &res);
+                              
+        if (res != CL_SUCCESS)
+            error_and_abort("Could not allocate frameGPUComprIx", res);
+    }
 
     /*
      * Load the OpenCL program from file "image_encoder_kernels.cl"
@@ -159,6 +169,7 @@ static ppp_frame *encode_opencl(uint8_t *image, const ppp_image_info *info,
     clSetKernelArg(kernel, 2, sizeof(cl_uint), &columns);
     clSetKernelArg(kernel, 3, sizeof(cl_uint), &format);
     clSetKernelArg(kernel, 4, sizeof(cl_mem),  &frameGPU);
+    clSetKernelArg(kernel, 5, sizeof(cl_mem),  &frameGPUComprIx);
 
     cl_event kernelEvent;
     res = clEnqueueNDRangeKernel(queue, kernel, work_dims, NULL,
@@ -167,17 +178,45 @@ static ppp_frame *encode_opencl(uint8_t *image, const ppp_image_info *info,
     if (res != CL_SUCCESS)
         error_and_abort("Could not enqueue kernel invocation", res);
 
+
     /* If we do not compress, the result has the same size as the
      * input (needs to be changed...).
      */
-    size_t size = rows * columns;
-    frame->length = size;
+    size_t size;
+    if(info->format != PPP_IMGFMT_COMPRESSED_DCT) {
+        size = rows * columns;
+        frame->length = size;
+    } else {
+        size = max_enc_bytes;
+    }
 
+        
     /* Copy the result from the device to the host. */
     res = clEnqueueReadBuffer(queue, frameGPU, CL_TRUE, 0,
-                              size, frame->data, 0, NULL, NULL);
+                            size, frame->data, 0, NULL, NULL);
+
     if (res != CL_SUCCESS)
         error_and_abort("Could not enqueue buffer read", res);
+        
+    /* Compress encoded values by using the encoding index */
+    if(info->format == PPP_IMGFMT_COMPRESSED_DCT) {
+        int encix_size = (rows*columns)/64;
+        uint8_t encix[encix_size];
+        
+        /* Copy the encoding index from the device to the host. */
+        res = clEnqueueReadBuffer(queue, frameGPUComprIx, CL_TRUE, 0,
+                                  encix_size, encix, 0, NULL, NULL);
+        if (res != CL_SUCCESS)
+            error_and_abort("Could not enqueue buffer (frameGPUComprIx) read", res);
+        
+        frame->length = 0;
+        for(int i = 0; i < encix_size; i++) {
+            if(frame->length > 0) {
+                memcpy(&(frame->data[frame->length]), &(frame->data[i*96]), encix[i]);
+            }
+            frame->length += encix[i];
+        }
+    }
         
     res = clFinish(queue);
     if (res != CL_SUCCESS)
@@ -189,6 +228,8 @@ static ppp_frame *encode_opencl(uint8_t *image, const ppp_image_info *info,
 
     clReleaseMemObject(imageGPU);
     clReleaseMemObject(frameGPU);
+    if(info->format == PPP_IMGFMT_COMPRESSED_DCT)
+        clReleaseMemObject(frameGPUComprIx);
     clReleaseKernel(kernel);
     clReleaseContext(context);
 
