@@ -79,7 +79,7 @@ constant int quantization_factors[64] = {
  * Computes M = A*M*A_tr
  */
 void mm_tr(constant float A_tr[64], float *M) {
-    __private float AM[64];
+    float AM[64];
 
     /* Compute AM = A*M */
     for (int y=0; y<8; y++) {
@@ -103,7 +103,7 @@ void mm_tr(constant float A_tr[64], float *M) {
 }
 
 kernel void encode_frame(global uint8_t *image,
-                         uint rows, uint columns, enum ppp_image_format format,
+                         uint rows, uint columns, uint format,
                          global uint8_t *frame) {
     int16_t i16Frame[64];
     int block_col = get_global_id(0);
@@ -113,7 +113,7 @@ kernel void encode_frame(global uint8_t *image,
 	
 	for (int y = 0; y<8; y++) {
 		for (int x = 0; x<8; x++) {
-				i16Frame[8*y+x] = (int16_t)image[(block_row*8 + y) * columns + block_col*8 + x] - 128;
+				i16Frame[8*y+x] = image[(block_row*8 + y) * columns + block_col*8 + x] - 128;
 		}
 	}
 	
@@ -132,9 +132,9 @@ kernel void encode_frame(global uint8_t *image,
 	/*
 	 * Copy back... 
 	 */
-	for (int y = 0; y<64; y++) {
+	for (int y = 0; y<8; y++) {
 		for (int x = 0; x<8; x++) {
-		        frame[idx++] = i16Frame[8*y+x];
+		    frame[idx++] = i16Frame[8*y+x];
 		}
 	}
 }
