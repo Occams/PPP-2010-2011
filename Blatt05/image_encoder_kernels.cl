@@ -102,6 +102,90 @@ void mm_tr(constant float A_tr[64], float *M) {
     }
 }
 
+
+/*
+ * Return the value for the first nibble of the
+ * encoding of 'val' (val /= 0).
+ */
+static uint8_t first_nibble(int16_t val) {
+    if (val == 1)
+        return 0x8;
+    else if (val == 2)
+        return 0x9;
+    else if (val == -1)
+        return 0xA;
+    else if (val == -2)
+        return 0xB;
+    else if (val >= 19)
+        return 0xE;
+    else if (val <= -19)
+        return 0xF;
+    else if (val <= -3)
+        return 0xD;
+    else
+        return 0xC;
+}
+
+/*
+ * Compress the given input values (in 'input') storing
+ * the compressed data in 'codes'. 'n_values' values are read from
+ * 'input'. Returns the number of bytes used in 'codes' (i.e.,
+ * the length of the compressed data in bytes).
+ */
+int compress_data(const int16_t *input, int n_values, uint8_t *codes) {
+    uint8_t nibbles[3*n_values];
+
+    /* Walk through the values. */
+    int zeros = 0, pos = 0;
+    for (int i=0; i<n_values; i++) {
+        int16_t val = input[i];
+        if (val == 0)
+            zeros++;
+        else {
+            /* When we meet a non-zero value, we output an appropriate
+             * number of codes for the zeros preceding the current
+             * non-zero value.
+             */
+            int16_t absval = val < 0 ? -val : val;
+            while (zeros > 0) {
+                int z = zeros > 7 ? 7 : zeros;
+                nibbles[pos++] = z;
+                zeros -= z;
+            }
+            nibbles[pos++] = first_nibble(val);
+            if (absval >= 19) {
+                uint8_t code = absval - 19;
+                nibbles[pos++] = code >> 4;
+                nibbles[pos++] = code & 0xF;
+            } else if (absval >= 3) {
+                nibbles[pos++] = absval - 3;
+            }
+        }
+    }
+
+    /* When the sequence ends with zeros, terminate the
+     * sequence with 0x0.
+     */
+    if (zeros > 0)
+        nibbles[pos++] = 0;
+    
+    /* Add a nibble 0x0 if the number of nibbles in the code
+     * is odd.
+     */
+    if ((pos & 1) != 0)
+        nibbles[pos++] = 0;
+    
+    /*
+     * Pack the nibbles into bytes. The first nibble of each
+     * pair of nibbles goes into the upper half of the byte.
+     */
+    for (int i=0; i<pos/2; i++)
+        codes[i] = (nibbles[2*i] << 4) | nibbles[2*i+1];
+
+    /* Return the number of bytes used. */
+    return pos/2;
+}
+
 kernel void encode_frame(global uint8_t *image,
                          uint rows, uint columns, uint format,
                          global uint8_t *frame) {
@@ -129,13 +213,17 @@ kernel void encode_frame(global uint8_t *image,
             i16Frame[permut[i]] = rint(fFrame[i] / quantization_factors[i]);
 	}
 	
-	/*
-	 * Copy back... 
-	 */
-	for (int y = 0; y<8; y++) {
-		for (int x = 0; x<8; x++) {
-		    frame[idx++] = i16Frame[8*y+x];
-		}
-	}
+	if(format == PPP_IMGFMT_COMPRESSED_DCT) {
+	    compress_data(i16Frame, 64, frame);
+	} else {
+	    /*
+	     * Copy back... 
+	     */
+	    for (int y = 0; y<8; y++) {
+		    for (int x = 0; x<8; x++) {
+		        frame[idx++] = i16Frame[8*y+x];
+		    }
+	    }
+    }
 }
 
