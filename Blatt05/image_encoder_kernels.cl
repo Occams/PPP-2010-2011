@@ -124,6 +124,9 @@ kernel void encode_frame(global uint8_t *image,
             fFrame[i] = i16Frame[i];
             
 	    mm_tr(dct_coeffs_tr, fFrame);
+	    
+	    for (int i=0; i<64; i++)
+            i16Frame[permut[i]] = rint(fFrame[i] / quantization_factors[i]);
 	}
 	
 	/*
