@@ -13,15 +13,11 @@ enum ppp_image_format {
     PPP_IMGFMT_COMPRESSED_DCT      = 2
 };
 
-
-
-
 /*
  * OpenCL extension: allow printf() in kernels
  * (AMD/ATI implementation only)
  */
 #pragma OPENCL EXTENSION cl_amd_printf: enable
-
 
 /*
  * Coefficients of the matrix A^tr to be used in DCT computation
@@ -101,7 +97,6 @@ void mm_tr(constant float A_tr[64], float *M) {
         }
     }
 }
-
 
 /*
  * Return the value for the first nibble of the
@@ -202,7 +197,6 @@ kernel void encode_frame(global uint8_t *image,
 		}
 	}
 	
-	
 	if(format == PPP_IMGFMT_UNCOMPRESSED_DCT || format == PPP_IMGFMT_COMPRESSED_DCT) {
 	    float fFrame[64];
         for(int i = 0; i < 64; i++)
@@ -217,14 +211,10 @@ kernel void encode_frame(global uint8_t *image,
 	if(format == PPP_IMGFMT_COMPRESSED_DCT) {
 	    frameEncIx[block_num] = compress_data(i16Frame, &(frame[block_num*96]));
 	} else {
-	    /*
-	     * Copy back... 
-	     */
-	    for (int y = 0; y<8; y++) {
-		    for (int x = 0; x<8; x++) {
+	
+	    for (int y = 0; y<8; y++)
+		    for (int x = 0; x<8; x++)
 		        frame[idx++] = i16Frame[8*y+x];
-		    }
-	    }
     }
 }
 
