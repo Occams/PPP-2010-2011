@@ -188,6 +188,8 @@ bool use_gpu) {
 		clSetKernelArg(kernel, 2, sizeof(cl_uint), &columns);
 		clSetKernelArg(kernel, 3, sizeof(cl_uint), &format);
 		clSetKernelArg(kernel, 4, sizeof(cl_mem),  &frameGPU);
+		clSetKernelArg(kernel, 5, sizeof(float) * 64,  NULL);
+		clSetKernelArg(kernel, 6, sizeof(float) * 64,  NULL);
 
 		/* Set the work group size and global number of work items for mm kernel. */
 		size_t global_work_size_mm [] = {columns, rows};
@@ -206,6 +208,7 @@ bool use_gpu) {
 	*/
 	size_t size;
 	size = rows * columns;
+	frame->length = size;
 
 	/* Copy the result from the device to the host. */
 	res = clEnqueueReadBuffer(queue, frameGPU, CL_TRUE, 0,

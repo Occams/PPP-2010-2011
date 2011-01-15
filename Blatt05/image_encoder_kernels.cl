@@ -199,25 +199,36 @@ kernel void blockwise_order(global uint8_t *image,
 
 kernel void mm(global uint8_t *image,
                          uint rows, uint columns, uint format,
-                         global uint8_t *frame) {
+                         global uint8_t *frame, __local float a[64], __local float b[64]) {
 	int col = get_global_id(0);
     int row = get_global_id(1);
 	int b_col = col / 8;
 	int b_row = row / 8;
-	int b_col_offset = col & 7;
-	int b_row_offset = row & 7;
+	int b_col_offset = get_local_id(0);
+	int b_row_offset = get_local_id(1);
 	int b_offset = b_row * 8 * columns + b_col * 64;
 	int start_idx = b_offset + b_row_offset * 8;
+	int local_idx = b_row_offset*8 + b_col_offset;
+	a[local_idx] = frame[start_idx + local_idx];
 	
-	/* M*A_tr */
+	/* A*M */
 	float res = 0.0f;
 	
+	barrier(CLK_LOCAL_MEM_FENCE);
+	
 	for (int i = 0; i < 8; i++)
-		res+= frame[start_idx + i] * dct_coeffs_tr[i * 8 + b_col_offset];
+		res+= dct_coeffs_tr[i * 8 + b_row_offset] * a[b_row_offset*8 + i];
 		
-	/* A*M */
+	/* M */
+	b[local_idx] = res;
+	res = 0.0f;
+	
+	barrier(CLK_LOCAL_MEM_FENCE);
+	
+	for (int i = 0; i < 8; i++)
+		res+= b[b_row_offset*8 + i] * dct_coeffs_tr[b_col_offset * 8 + i];
+	barrier(CLK_LOCAL_MEM_FENCE);
 	
 	/* Quantization, permutation */
-	barrier(CLK_GLOBAL_MEM_FENCE);
 	frame[b_offset + permut[b_row_offset * 8 + b_col_offset]] = rint(res / quantization_factors[b_row_offset * 8 + b_col_offset]);
 }
