@@ -182,39 +182,42 @@ int compress_data(const int16_t *input, global uint8_t *codes) {
     return pos/2;
 }
 
-kernel void encode_frame(global uint8_t *image,
+kernel void blockwise_order(global uint8_t *image,
                          uint rows, uint columns, uint format,
-                         global uint8_t *frame, global uint8_t *frameEncIx) {
-    int16_t i16Frame[64];
-    int block_col = get_global_id(0);
-    int block_row = get_global_id(1);
-	int block_num = block_col + get_global_size(0)* block_row;
-	int idx = block_num * 64;
+                         global uint8_t *frame) {
+    int col = get_global_id(0);
+    int row = get_global_id(1);
+	int b_col = col / 8;
+	int b_row = row / 8;
+	int b_col_offset = col & 7;
+	int b_row_offset = row & 7;
 	
-	for (int y = 0; y<8; y++) {
-		for (int x = 0; x<8; x++) {
-				i16Frame[8*y+x] = image[(block_row*8 + y) * columns + block_col*8 + x] - 128;
-		}
-	}
-	
-	if(format == PPP_IMGFMT_UNCOMPRESSED_DCT || format == PPP_IMGFMT_COMPRESSED_DCT) {
-	    float fFrame[64];
-        for(int i = 0; i < 64; i++)
-            fFrame[i] = i16Frame[i];
-            
-	    mm_tr(dct_coeffs_tr, fFrame);
-	    
-	    for (int i=0; i<64; i++)
-            i16Frame[permut[i]] = rint(fFrame[i] / quantization_factors[i]);
-	}
-	
-	if(format == PPP_IMGFMT_COMPRESSED_DCT) {
-	    frameEncIx[block_num] = compress_data(i16Frame, &(frame[block_num*96]));
-	} else {
-	
-	    for (int y = 0; y<8; y++)
-		    for (int x = 0; x<8; x++)
-		        frame[idx++] = i16Frame[8*y+x];
-    }
+	/* Blockwise order */
+	int idx = b_row * 8 * columns + b_col * 64 + b_row_offset * 8 + b_col_offset;
+	frame[idx] = image[row * columns + col] - 128;
 }
 
+kernel void mm(global uint8_t *image,
+                         uint rows, uint columns, uint format,
+                         global uint8_t *frame) {
+	int col = get_global_id(0);
+    int row = get_global_id(1);
+	int b_col = col / 8;
+	int b_row = row / 8;
+	int b_col_offset = col & 7;
+	int b_row_offset = row & 7;
+	int b_offset = b_row * 8 * columns + b_col * 64;
+	int start_idx = b_offset + b_row_offset * 8;
+	
+	/* M*A_tr */
+	float res = 0.0f;
+	
+	for (int i = 0; i < 8; i++)
+		res+= frame[start_idx + i] * dct_coeffs_tr[i * 8 + b_col_offset];
+		
+	/* A*M */
+	
+	/* Quantization, permutation */
+	barrier(CLK_GLOBAL_MEM_FENCE);
+	frame[b_offset + permut[b_row_offset * 8 + b_col_offset]] = rint(res / quantization_factors[b_row_offset * 8 + b_col_offset]);
+}

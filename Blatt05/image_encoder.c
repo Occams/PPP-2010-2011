@@ -137,7 +137,7 @@ bool use_gpu) {
 	* Load the OpenCL program from file "image_encoder_kernels.cl"
 	* and compile it.
 	*/
-	program = build_program("image_encoder_kernels2.cl", context, devid);
+	program = build_program("image_encoder_kernels.cl", context, devid);
 	
 	/* Find kernel "blockwise_order" in the compiled program. */
 	kernel = clCreateKernel(program, "blockwise_order", NULL);
