@@ -183,7 +183,7 @@ int compress_data(const int16_t *input, global uint8_t *codes) {
 }
 
 kernel void blockwise_order(global uint8_t *image,
-                         uint rows, uint columns, uint format,
+                         uint rows, uint columns, enum ppp_image_format format,
                          global uint8_t *frame) {
     int col = get_global_id(0);
     int row = get_global_id(1);
@@ -194,11 +194,16 @@ kernel void blockwise_order(global uint8_t *image,
 	
 	/* Blockwise order */
 	int idx = b_row * 8 * columns + b_col * 64 + b_row_offset * 8 + b_col_offset;
-	frame[idx] = image[row * columns + col] - 128;
+	
+	if(format == PPP_IMGFMT_UNCOMPRESSED_BLOCKS) {
+    	frame[idx] = image[row * columns + col] - 128;
+    } else {
+        frame[idx] = image[row * columns + col];
+    }
 }
 
 kernel void mm(global uint8_t *image,
-                         uint rows, uint columns, uint format,
+                         uint rows, uint columns, enum ppp_image_format format,
                          global uint8_t *frame, __local float a[64], __local float b[64]) {
 	int col = get_global_id(0);
     int row = get_global_id(1);
@@ -207,28 +212,23 @@ kernel void mm(global uint8_t *image,
 	int b_col_offset = get_local_id(0);
 	int b_row_offset = get_local_id(1);
 	int b_offset = b_row * 8 * columns + b_col * 64;
-	int start_idx = b_offset + b_row_offset * 8;
+	
 	int local_idx = b_row_offset*8 + b_col_offset;
-	a[local_idx] = frame[start_idx + local_idx];
 	
-	/* A*M */
+	/* B = DCT*M */
 	float res = 0.0f;
-	
-	barrier(CLK_LOCAL_MEM_FENCE);
-	
 	for (int i = 0; i < 8; i++)
-		res+= dct_coeffs_tr[i * 8 + b_row_offset] * a[b_row_offset*8 + i];
+		res+= dct_coeffs_tr[i * 8 + b_row_offset] * ((int16_t)frame[b_offset + 8*i + b_col_offset] - 128);
 		
-	/* M */
 	b[local_idx] = res;
+	barrier(CLK_LOCAL_MEM_FENCE);
+	/* Here AFTER the barrier, B holds all values */
+	
+	/* A = B*DCT_TR */
 	res = 0.0f;
-	
-	barrier(CLK_LOCAL_MEM_FENCE);
-	
 	for (int i = 0; i < 8; i++)
-		res+= b[b_row_offset*8 + i] * dct_coeffs_tr[b_col_offset * 8 + i];
-	barrier(CLK_LOCAL_MEM_FENCE);
-	
+		res+= b[b_row_offset*8 + i] * dct_coeffs_tr[i*8 + b_col_offset];
+
 	/* Quantization, permutation */
-	frame[b_offset + permut[b_row_offset * 8 + b_col_offset]] = rint(res / quantization_factors[b_row_offset * 8 + b_col_offset]);
+	frame[b_offset + permut[local_idx]] = rint(res / quantization_factors[local_idx]);
 }
