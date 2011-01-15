@@ -127,7 +127,7 @@ uint8_t first_nibble(int16_t val) {
  * 'input'. Returns the number of bytes used in 'codes' (i.e.,
  * the length of the compressed data in bytes).
  */
-int compress_data(const int16_t *input, global uint8_t *codes) {
+int compress_data(const __local int16_t *input, global uint8_t *codes) {
     const int n_values = 64;
     uint8_t nibbles[3*64];
 
@@ -182,53 +182,73 @@ int compress_data(const int16_t *input, global uint8_t *codes) {
     return pos/2;
 }
 
-kernel void blockwise_order(global uint8_t *image,
+kernel void encode_image(global uint8_t *image,
                          uint rows, uint columns, enum ppp_image_format format,
-                         global uint8_t *frame) {
+                         global uint8_t *frame, global uint8_t *frameEncIx, __local int16_t a[64], __local float b[64]) {
     int col = get_global_id(0);
     int row = get_global_id(1);
 	int b_col = col / 8;
 	int b_row = row / 8;
-	int b_col_offset = col & 7;
-	int b_row_offset = row & 7;
+	int b_num = b_col + (get_global_size(0)/8)*b_row;
+	int b_col_offset = get_local_id(0);
+	int b_row_offset = get_local_id(1);
+	int b_offset = b_row * 8 * columns + b_col * 64;
+	int local_idx = b_row_offset*8 + b_col_offset;
 	
-	/* Blockwise order */
+	
+	/*
+	 * FIRST STEP: Order the bytes blockwise from image array to frame array.
+	 *
+	 */
 	int idx = b_row * 8 * columns + b_col * 64 + b_row_offset * 8 + b_col_offset;
 	
 	if(format == PPP_IMGFMT_UNCOMPRESSED_BLOCKS) {
     	frame[idx] = image[row * columns + col] - 128;
-    } else {
-        frame[idx] = image[row * columns + col];
+    	
+    	/*
+    	 * Kernel finished in this case!!!!
+    	 */
+    	return;
     }
-}
-
-kernel void mm(global uint8_t *image,
-                         uint rows, uint columns, enum ppp_image_format format,
-                         global uint8_t *frame, __local float a[64], __local float b[64]) {
-	int col = get_global_id(0);
-    int row = get_global_id(1);
-	int b_col = col / 8;
-	int b_row = row / 8;
-	int b_col_offset = get_local_id(0);
-	int b_row_offset = get_local_id(1);
-	int b_offset = b_row * 8 * columns + b_col * 64;
-	
-	int local_idx = b_row_offset*8 + b_col_offset;
-	
+    frame[idx] = image[row * columns + col];
+    barrier(CLK_LOCAL_MEM_FENCE);
+    
+    /*
+     * SECOND STEP: DCT transformation...
+     */
+     
 	/* B = DCT*M */
 	float res = 0.0f;
 	for (int i = 0; i < 8; i++)
-		res+= dct_coeffs_tr[i * 8 + b_row_offset] * ((int16_t)frame[b_offset + 8*i + b_col_offset] - 128);
+		res += dct_coeffs_tr[i * 8 + b_row_offset] * ((int16_t)frame[b_offset + 8*i + b_col_offset] - 128);
 		
 	b[local_idx] = res;
+	/* AFTER the barrier, B is completely available to all other items in the group */
 	barrier(CLK_LOCAL_MEM_FENCE);
-	/* Here AFTER the barrier, B holds all values */
 	
 	/* A = B*DCT_TR */
 	res = 0.0f;
 	for (int i = 0; i < 8; i++)
-		res+= b[b_row_offset*8 + i] * dct_coeffs_tr[i*8 + b_col_offset];
-
-	/* Quantization, permutation */
-	frame[b_offset + permut[local_idx]] = rint(res / quantization_factors[local_idx]);
+		res += b[b_row_offset*8 + i] * dct_coeffs_tr[i*8 + b_col_offset];
+	
+    if(format == PPP_IMGFMT_UNCOMPRESSED_DCT) {
+        /* Quantization, permutation */
+        frame[b_offset + permut[local_idx]] = (int16_t)rint(res / quantization_factors[local_idx]);
+        /*
+         * We're done in this case 
+         */
+        return;
+    }
+    
+    /*
+     * THIRD STEP: Compression
+     */
+    
+    // First of all, save the results in the int16_t array, so that compression works correctly.
+	a[permut[local_idx]] = (int16_t)rint(res / quantization_factors[local_idx]);
+	// Barrier so afterwards every item in the group has the results of each other.
+    barrier(CLK_LOCAL_MEM_FENCE);
+    if(b_col_offset == 0 && b_row_offset == 0) {
+	    frameEncIx[b_num] = compress_data(a, &(frame[b_num*96]));
+	}
 }

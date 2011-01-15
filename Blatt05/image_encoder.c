@@ -99,7 +99,7 @@ bool use_gpu) {
 	cl_command_queue queue;
 	cl_program program;
 	cl_kernel kernel;
-	cl_mem imageGPU, frameGPU;
+	cl_mem imageGPU, frameGPU, frameGPUComprIx;
 	cl_int res;
 
 
@@ -120,7 +120,7 @@ bool use_gpu) {
 	* We request that the image (from the host) is copied to the device.
 	*/
 	imageGPU = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-	sizeof(*image)*rows*columns, (void *)image, &res);
+	    sizeof(*image)*rows*columns, (void *)image, &res);
 	if (res != CL_SUCCESS)
 		error_and_abort("Could not allocate imageGPU", res);
 	
@@ -128,10 +128,18 @@ bool use_gpu) {
 	* We need at most 'max_enc_bytes' to represent the result.
 	*/
 	frameGPU = clCreateBuffer(context, CL_MEM_READ_WRITE,
-	max_enc_bytes, NULL, &res);
+	    max_enc_bytes, NULL, &res);
 	
 	if (res != CL_SUCCESS)
 		error_and_abort("Could not allocate frameGPU", res);
+		
+    if(info->format == PPP_IMGFMT_COMPRESSED_DCT) {
+        frameGPUComprIx = clCreateBuffer(context, CL_MEM_READ_WRITE,
+                              (rows*columns)/64, NULL, &res);
+                              
+        if (res != CL_SUCCESS)
+            error_and_abort("Could not allocate frameGPUComprIx", res);
+    }
 
 	/*
 	* Load the OpenCL program from file "image_encoder_kernels.cl"
@@ -140,7 +148,7 @@ bool use_gpu) {
 	program = build_program("image_encoder_kernels.cl", context, devid);
 	
 	/* Find kernel "blockwise_order" in the compiled program. */
-	kernel = clCreateKernel(program, "blockwise_order", NULL);
+	kernel = clCreateKernel(program, "encode_image", NULL);
 	if (kernel == NULL) {
 		fprintf(stderr, "Could not create kernel 'encode_frame'.\n");
 		exit(1);
@@ -155,60 +163,37 @@ bool use_gpu) {
 	clSetKernelArg(kernel, 2, sizeof(cl_uint), &columns);
 	clSetKernelArg(kernel, 3, sizeof(cl_uint), &format);
 	clSetKernelArg(kernel, 4, sizeof(cl_mem),  &frameGPU);
+	if(format == PPP_IMGFMT_COMPRESSED_DCT) {
+	    printf("Pass frame index\n");
+    	clSetKernelArg(kernel, 5, sizeof(cl_mem),  &frameGPUComprIx);
+    } else {
+        clSetKernelArg(kernel, 5, sizeof(cl_mem),  &frameGPU);
+    }
+	clSetKernelArg(kernel, 6, sizeof(int16_t) * 64,  NULL);
+	clSetKernelArg(kernel, 7, sizeof(float) * 64,  NULL);
 	
 	/* Set the work group size and global number of work items for blockwise_order kernel. */
 	size_t work_dims = 2;
 	size_t global_work_size[] = {columns, rows};
-	// size_t local_work_size[] = {8,8};
+	size_t local_work_size[] = {8,8};
 
 	cl_event kernelEvent;
-	cl_event kernelEvent_mm;
-	
-	res = clEnqueueNDRangeKernel(queue, kernel, work_dims, NULL,
-				global_work_size, NULL,
-				0, NULL, &kernelEvent);
+    res = clEnqueueNDRangeKernel(queue, kernel, work_dims, NULL,
+                                 global_work_size, local_work_size,
+                                 0, NULL, &kernelEvent);
+                                 
 	if (res != CL_SUCCESS)
 		error_and_abort("Could not enqueue kernel invocation", res);
-	
-	if (info->format == PPP_IMGFMT_UNCOMPRESSED_DCT || info->format == PPP_IMGFMT_COMPRESSED_DCT) {
 		
-		/* Find kernel "mm" in the compiled program. */
-		kernel = clCreateKernel(program, "mm", NULL);
-		if (kernel == NULL) {
-			fprintf(stderr, "Could not create kernel 'mm'.\n");
-			exit(1);
-		}
 
-		/* Set the arguments for the kernel invocation.
-		* We pass the pointers to the input image, the number of rows
-		* add columns, the format and the pointer to the result.
-		*/
-		clSetKernelArg(kernel, 0, sizeof(cl_mem),  &imageGPU);
-		clSetKernelArg(kernel, 1, sizeof(cl_uint), &rows);
-		clSetKernelArg(kernel, 2, sizeof(cl_uint), &columns);
-		clSetKernelArg(kernel, 3, sizeof(cl_uint), &format);
-		clSetKernelArg(kernel, 4, sizeof(cl_mem),  &frameGPU);
-		clSetKernelArg(kernel, 5, sizeof(float) * 64,  NULL);
-		clSetKernelArg(kernel, 6, sizeof(float) * 64,  NULL);
-
-		/* Set the work group size and global number of work items for mm kernel. */
-		size_t global_work_size_mm [] = {columns, rows};
-		size_t local_work_size_mm [] = {8,8};
-		
-		res = clEnqueueNDRangeKernel(queue, kernel, work_dims, NULL,
-				global_work_size_mm, local_work_size_mm,
-				1, &kernelEvent, &kernelEvent_mm);
-				
-		if (res != CL_SUCCESS)
-			error_and_abort("Could not enqueue kernel invocation", res);	
-	}
-
-	/* If we do not compress, the result has the same size as the
-	* input (needs to be changed...).
-	*/
-	size_t size;
-	size = rows * columns;
-	frame->length = size;
+    size_t size;
+    if(info->format != PPP_IMGFMT_COMPRESSED_DCT) {
+        size = rows * columns;
+        frame->length = size;
+    } else {
+        size = max_enc_bytes;
+    }
+    
 
 	/* Copy the result from the device to the host. */
 	res = clEnqueueReadBuffer(queue, frameGPU, CL_TRUE, 0,
@@ -216,17 +201,39 @@ bool use_gpu) {
 
 	if (res != CL_SUCCESS)
 		error_and_abort("Could not enqueue buffer read", res);
+		
+    /* Compress encoded values by using the encoding index */
+    if(info->format == PPP_IMGFMT_COMPRESSED_DCT) {
+        int encix_size = (rows*columns)/64;
+        uint8_t encix[encix_size];
+        
+        /* Copy the encoding index from the device to the host. */
+        res = clEnqueueReadBuffer(queue, frameGPUComprIx, CL_TRUE, 0,
+                                  encix_size, encix, 0, NULL, NULL);
+        if (res != CL_SUCCESS)
+            error_and_abort("Could not enqueue buffer (frameGPUComprIx) read", res);
+        
+        frame->length = 0;
+        for(int i = 0; i < encix_size; i++) {
+            if(frame->length > 0) {
+                memcpy(&(frame->data[frame->length]), &(frame->data[i*96]), encix[i]);
+            }
+            frame->length += encix[i];
+        }
+    }
 	
 	res = clFinish(queue);
 	if (res != CL_SUCCESS)
 		error_and_abort("Error at clFinish", res);
 	
-	cl_ulong end = info->format == PPP_IMGFMT_UNCOMPRESSED_DCT ? get_event_end_nanos(kernelEvent_mm) : get_event_end_nanos(kernelEvent);
-	cl_ulong nanos = end - get_event_start_nanos(kernelEvent);
+	cl_ulong nanos = get_event_end_nanos(kernelEvent) -
+       get_event_start_nanos(kernelEvent);
 	printf("Duration: %.3f ms\n", nanos/1.0e6);
 
 	clReleaseMemObject(imageGPU);
 	clReleaseMemObject(frameGPU);
+    if(info->format == PPP_IMGFMT_COMPRESSED_DCT)
+        clReleaseMemObject(frameGPUComprIx);
 	clReleaseKernel(kernel);
 	clReleaseContext(context);
 
