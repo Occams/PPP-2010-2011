@@ -248,7 +248,9 @@ kernel void encode_image(global uint8_t *image,
 	a[permut[local_idx]] = (int16_t)rint(res / quantization_factors[local_idx]);
 	// Barrier so afterwards every item in the group has the results of each other.
     barrier(CLK_LOCAL_MEM_FENCE);
+    
     if(b_col_offset == 0 && b_row_offset == 0) {
 	    frameEncIx[b_num] = compress_data(a, &(frame[b_num*96]));
+    	barrier(CLK_GLOBAL_MEM_FENCE);
 	}
 }
