@@ -81,7 +81,7 @@ static ppp_frame *encode(uint8_t *image, const ppp_image_info *info) {
 * Encode a frame using the OpenCL implementation.
 */
 static ppp_frame *encode_opencl(uint8_t *image, const ppp_image_info *info,
-bool use_gpu) {
+		bool use_gpu) {
 
 	ppp_frame *frame;
 	const cl_uint rows = info->rows;
@@ -132,6 +132,7 @@ bool use_gpu) {
 	
 	if (res != CL_SUCCESS)
 		error_and_abort("Could not allocate frameGPU", res);
+		
 		
     if(info->format == PPP_IMGFMT_COMPRESSED_DCT) {
         frameGPUComprIx = clCreateBuffer(context, CL_MEM_READ_WRITE,
