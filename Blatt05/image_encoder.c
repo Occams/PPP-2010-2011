@@ -163,12 +163,13 @@ bool use_gpu) {
 	clSetKernelArg(kernel, 2, sizeof(cl_uint), &columns);
 	clSetKernelArg(kernel, 3, sizeof(cl_uint), &format);
 	clSetKernelArg(kernel, 4, sizeof(cl_mem),  &frameGPU);
+	
 	if(format == PPP_IMGFMT_COMPRESSED_DCT) {
-	    printf("Pass frame index\n");
     	clSetKernelArg(kernel, 5, sizeof(cl_mem),  &frameGPUComprIx);
     } else {
         clSetKernelArg(kernel, 5, sizeof(cl_mem),  &frameGPU);
     }
+	
 	clSetKernelArg(kernel, 6, sizeof(int16_t) * 64,  NULL);
 	clSetKernelArg(kernel, 7, sizeof(float) * 64,  NULL);
 	

@@ -194,63 +194,62 @@ kernel void encode_image(global uint8_t *image,
 	int b_row_offset = get_local_id(1);
 	int b_offset = b_row * 8 * columns + b_col * 64;
 	int local_idx = b_row_offset*8 + b_col_offset;
+	//int local_idx_tr = b_col_offset*8 + b_col_offset;
+	int pixel = row * columns + col;
 	
 	
-	/*
-	 * FIRST STEP: Order the bytes blockwise from image array to frame array.
-	 *
-	 */
-	int idx = b_row * 8 * columns + b_col * 64 + b_row_offset * 8 + b_col_offset;
+	/* FIRST STEP: Order the bytes blockwise from image to frame array. */
+	int idx = b_offset + local_idx;
+	
+	/* Local mem is way faster (100x) than global mem. */
+	a[local_idx] = image[pixel] - 128;
 	
 	if(format == PPP_IMGFMT_UNCOMPRESSED_BLOCKS) {
-    	frame[idx] = image[row * columns + col] - 128;
+    	frame[idx] = a[local_idx];
     	
-    	/*
-    	 * Kernel finished in this case!!!!
-    	 */
+    	/* Kernel is done in this case! */
     	return;
     }
-    frame[idx] = image[row * columns + col];
+	
+	/* GPU does NOT need this barrier. (?)*/
     barrier(CLK_LOCAL_MEM_FENCE);
     
-    /*
-     * SECOND STEP: DCT transformation...
-     */
+    /* SECOND STEP: DCT transformation */
      
 	/* B = DCT*M */
 	float res = 0.0f;
 	for (int i = 0; i < 8; i++)
-		res += dct_coeffs_tr[i * 8 + b_row_offset] * ((int16_t)frame[b_offset + 8*i + b_col_offset] - 128);
+		res += dct_coeffs_tr[i * 8 + b_row_offset] * a[8*i + b_col_offset];
 		
 	b[local_idx] = res;
+	
 	/* AFTER the barrier, B is completely available to all other items in the group */
+	/* Again: GPU does NOT need this barrier. (?)*/
 	barrier(CLK_LOCAL_MEM_FENCE);
 	
 	/* A = B*DCT_TR */
 	res = 0.0f;
 	for (int i = 0; i < 8; i++)
 		res += b[b_row_offset*8 + i] * dct_coeffs_tr[i*8 + b_col_offset];
+		
+	/* Quantization, permutation */
+	a[permut[local_idx]] = (int16_t) rint(res / quantization_factors[local_idx]);
 	
     if(format == PPP_IMGFMT_UNCOMPRESSED_DCT) {
-        /* Quantization, permutation */
-        frame[b_offset + permut[local_idx]] = (int16_t)rint(res / quantization_factors[local_idx]);
-        /*
-         * We're done in this case 
-         */
+        frame[b_offset +local_idx] = a[permut[local_idx]];
+		
+        /* We're done in this case. */
         return;
     }
     
-    /*
-     * THIRD STEP: Compression
-     */
+    /* THIRD STEP: Compression */
     
-    // First of all, save the results in the int16_t array, so that compression works correctly.
-	a[permut[local_idx]] = (int16_t)rint(res / quantization_factors[local_idx]);
-	// Barrier so afterwards every item in the group has the results of each other.
+	/* Barrier to ensure mem consistency */
+	/* And Again: GPU does NOT need this barrier. (?)*/
     barrier(CLK_LOCAL_MEM_FENCE);
     
     if(b_col_offset == 0 && b_row_offset == 0) {
 	    frameEncIx[b_num] = compress_data(a, &(frame[b_num*96]));
-    	barrier(CLK_GLOBAL_MEM_FENCE);
+    	//barrier(CLK_GLOBAL_MEM_FENCE);
 	}
 }
