@@ -184,7 +184,7 @@ int compress_data(const __local int16_t *input, global uint8_t *codes) {
 
 kernel void encode_image(global uint8_t *image,
                          uint rows, uint columns, enum ppp_image_format format,
-                         global uint8_t *frame, global uint8_t *frameEncIx, __local int16_t a[64], __local float b[64]) {
+                         global uint8_t *frame, __local int16_t a[64], __local float b[64]) {
     int col = get_global_id(0);
     int row = get_global_id(1);
 	int b_col = col / 8;
@@ -247,9 +247,9 @@ kernel void encode_image(global uint8_t *image,
 	/* Barrier to ensure mem consistency */
 	/* And Again: GPU does NOT need this barrier. (?)*/
     barrier(CLK_LOCAL_MEM_FENCE);
-    
+	
     if(b_col_offset == 0 && b_row_offset == 0) {
-	    frameEncIx[b_num] = compress_data(a, &(frame[b_num*96]));
+		frame[(b_num+1)*96 + b_num] = compress_data(a, &(frame[b_num*97]));
     	//barrier(CLK_GLOBAL_MEM_FENCE);
 	}
 }

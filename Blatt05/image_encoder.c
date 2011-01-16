@@ -93,18 +93,18 @@ static ppp_frame *encode_opencl(uint8_t *image, const ppp_image_info *info,
 	* in any of the supported formats.
 	*/
 	const int max_enc_bytes = max_encoded_length(rows*columns);
-
+	const int blocks = rows*columns/64;
 	cl_context context;
 	cl_device_id devid;
 	cl_command_queue queue;
 	cl_program program;
 	cl_kernel kernel;
-	cl_mem imageGPU, frameGPU, frameGPUComprIx;
+	cl_mem imageGPU, frameGPU;
 	cl_int res;
 
 
-	/* Allocate space for the result. */
-	frame = ppp_frame_alloc(max_enc_bytes);
+	/* Allocate space for the result. Reserve space for length values. */
+	frame = ppp_frame_alloc(max_enc_bytes + blocks);
 	if (frame == NULL)
 		return NULL;
 
@@ -128,19 +128,10 @@ static ppp_frame *encode_opencl(uint8_t *image, const ppp_image_info *info,
 	* We need at most 'max_enc_bytes' to represent the result.
 	*/
 	frameGPU = clCreateBuffer(context, CL_MEM_READ_WRITE,
-	    max_enc_bytes, NULL, &res);
+	    max_enc_bytes + blocks, NULL, &res);
 	
 	if (res != CL_SUCCESS)
 		error_and_abort("Could not allocate frameGPU", res);
-		
-		
-    if(info->format == PPP_IMGFMT_COMPRESSED_DCT) {
-        frameGPUComprIx = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                              (rows*columns)/64, NULL, &res);
-                              
-        if (res != CL_SUCCESS)
-            error_and_abort("Could not allocate frameGPUComprIx", res);
-    }
 
 	/*
 	* Load the OpenCL program from file "image_encoder_kernels.cl"
@@ -164,17 +155,10 @@ static ppp_frame *encode_opencl(uint8_t *image, const ppp_image_info *info,
 	clSetKernelArg(kernel, 2, sizeof(cl_uint), &columns);
 	clSetKernelArg(kernel, 3, sizeof(cl_uint), &format);
 	clSetKernelArg(kernel, 4, sizeof(cl_mem),  &frameGPU);
+	clSetKernelArg(kernel, 5, sizeof(int16_t) * 64,  NULL);
+	clSetKernelArg(kernel, 6, sizeof(float) * 64,  NULL);
 	
-	if(format == PPP_IMGFMT_COMPRESSED_DCT) {
-    	clSetKernelArg(kernel, 5, sizeof(cl_mem),  &frameGPUComprIx);
-    } else {
-        clSetKernelArg(kernel, 5, sizeof(cl_mem),  &frameGPU);
-    }
-	
-	clSetKernelArg(kernel, 6, sizeof(int16_t) * 64,  NULL);
-	clSetKernelArg(kernel, 7, sizeof(float) * 64,  NULL);
-	
-	/* Set the work group size and global number of work items for blockwise_order kernel. */
+	/* Set the work group size and global number of work items for the kernel. */
 	size_t work_dims = 2;
 	size_t global_work_size[] = {columns, rows};
 	size_t local_work_size[] = {8,8};
@@ -193,7 +177,7 @@ static ppp_frame *encode_opencl(uint8_t *image, const ppp_image_info *info,
         size = rows * columns;
         frame->length = size;
     } else {
-        size = max_enc_bytes;
+        size = max_enc_bytes + blocks;
     }
     
 
@@ -206,21 +190,12 @@ static ppp_frame *encode_opencl(uint8_t *image, const ppp_image_info *info,
 		
     /* Compress encoded values by using the encoding index */
     if(info->format == PPP_IMGFMT_COMPRESSED_DCT) {
-        int encix_size = (rows*columns)/64;
-        uint8_t encix[encix_size];
-        
-        /* Copy the encoding index from the device to the host. */
-        res = clEnqueueReadBuffer(queue, frameGPUComprIx, CL_TRUE, 0,
-                                  encix_size, encix, 0, NULL, NULL);
-        if (res != CL_SUCCESS)
-            error_and_abort("Could not enqueue buffer (frameGPUComprIx) read", res);
-        
+	
         frame->length = 0;
-        for(int i = 0; i < encix_size; i++) {
-            if(frame->length > 0) {
-                memcpy(&(frame->data[frame->length]), &(frame->data[i*96]), encix[i]);
-            }
-            frame->length += encix[i];
+        for(int i = 0; i < blocks; i++) {
+			int lenght = (int) frame->data[(i+1)*96 + i];
+			memcpy(&(frame->data[frame->length]), &(frame->data[i*97]), lenght);
+			frame->length += lenght;
         }
     }
 	
@@ -234,8 +209,6 @@ static ppp_frame *encode_opencl(uint8_t *image, const ppp_image_info *info,
 
 	clReleaseMemObject(imageGPU);
 	clReleaseMemObject(frameGPU);
-    if(info->format == PPP_IMGFMT_COMPRESSED_DCT)
-        clReleaseMemObject(frameGPUComprIx);
 	clReleaseKernel(kernel);
 	clReleaseContext(context);
 
