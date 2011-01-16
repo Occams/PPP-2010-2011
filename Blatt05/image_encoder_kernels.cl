@@ -17,7 +17,7 @@ enum ppp_image_format {
  * OpenCL extension: allow printf() in kernels
  * (AMD/ATI implementation only)
  */
-#pragma OPENCL EXTENSION cl_amd_printf: enable
+//#pragma OPENCL EXTENSION cl_amd_printf: enable
 
 /*
  * Coefficients of the matrix A^tr to be used in DCT computation
@@ -236,7 +236,7 @@ kernel void encode_image(global uint8_t *image,
 	a[permut[local_idx]] = (int16_t) rint(res / quantization_factors[local_idx]);
 	
     if(format == PPP_IMGFMT_UNCOMPRESSED_DCT) {
-        frame[b_offset +local_idx] = a[permut[local_idx]];
+        frame[b_offset +local_idx] = a[local_idx];
 		
         /* We're done in this case. */
         return;
