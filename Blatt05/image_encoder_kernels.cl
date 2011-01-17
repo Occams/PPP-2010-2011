@@ -236,6 +236,7 @@ kernel void encode_image(global uint8_t *image,
 	a[permut[local_idx]] = (int16_t) rint(res / quantization_factors[local_idx]);
 	
     if(format == PPP_IMGFMT_UNCOMPRESSED_DCT) {
+		barrier(CLK_LOCAL_MEM_FENCE);
         frame[b_offset +local_idx] = a[local_idx];
 		
         /* We're done in this case. */
@@ -244,12 +245,11 @@ kernel void encode_image(global uint8_t *image,
     
     /* THIRD STEP: Compression */
     
-	/* Barrier to ensure mem consistency */
+	/* Barrier to ensure memory consistency */
 	/* And Again: GPU does NOT need this barrier. (?)*/
     barrier(CLK_LOCAL_MEM_FENCE);
 	
     if(b_col_offset == 0 && b_row_offset == 0) {
 		frame[(b_num+1)*96 + b_num] = compress_data(a, &(frame[b_num*97]));
-    	//barrier(CLK_GLOBAL_MEM_FENCE);
 	}
 }
