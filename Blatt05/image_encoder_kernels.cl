@@ -17,7 +17,7 @@ enum ppp_image_format {
  * OpenCL extension: allow printf() in kernels
  * (AMD/ATI implementation only)
  */
-#pragma OPENCL EXTENSION cl_amd_printf: enable
+//#pragma OPENCL EXTENSION cl_amd_printf: enable
 
 /*
  * Coefficients of the matrix A^tr to be used in DCT computation
@@ -196,7 +196,8 @@ int compress_data(const __local int16_t *input, global uint8_t *codes) {
 kernel void encode_image(global uint8_t *image,
                          uint rows, uint columns, enum ppp_image_format format,
                          global uint8_t *frame) {
-	local int16_t a[64] __attribute__ ((aligned(16)));
+	local int16_t tmp[64] __attribute__ ((aligned(16)));
+	local float a[64] __attribute__ ((aligned(16)));
 	local float b[64] __attribute__ ((aligned(16)));
     int col = get_global_id(0);
     int row = get_global_id(1);
@@ -230,30 +231,28 @@ kernel void encode_image(global uint8_t *image,
     /* SECOND STEP: DCT transformation */
      
 	/* B = DCT*M */
-	// float8 vec = (float8)(dct_coeffs_tr[b_row_offset], dct_coeffs_tr[8 + b_row_offset],dct_coeffs_tr[b_row_offset + 8*2],dct_coeffs_tr[b_row_offset + 8 * 3],
-		// dct_coeffs_tr[b_row_offset + 8 * 4], dct_coeffs_tr[b_row_offset + 8 * 5],dct_coeffs_tr[b_row_offset + 8 * 6],dct_coeffs_tr[b_row_offset + 8 * 7]) 
-		// *
-		// (float8)(a[b_col_offset * 8], a[b_col_offset * 8+1],a[b_col_offset * 8+2], a[b_col_offset * 8 + 3],
-		 // a[b_col_offset * 8 + 4], a[b_col_offset * 8 + 5], a[b_col_offset * 8 + 6], a[b_col_offset * 8 + 7]);
-		 
-	float8 vec = (float8) dct_coeffs[b_row_offset*8] * (float8)a[b_col_offset*8];
-		
-	b[local_idx] = vec.s0 + vec.s1 + vec.s2 + vec.s3 + vec.s4 + vec.s5 + vec.s6 + vec.s7;
+	int offset_dct = 8 * b_row_offset, offset_a = 8 * b_col_offset;
+	float4 vec1 = (float4) (dct_coeffs[offset_dct], dct_coeffs[offset_dct + 1],dct_coeffs[offset_dct + 2],dct_coeffs[offset_dct + 3]) *
+				(float4) (a[offset_a], a[offset_a + 1], a[offset_a + 2], a[offset_a + 3]);
+	float4 vec2 = (float4) (dct_coeffs[offset_dct + 4], dct_coeffs[offset_dct + 5],dct_coeffs[offset_dct + 6],dct_coeffs[offset_dct + 7]) *
+				(float4) (a[offset_a + 4], a[offset_a + 5], a[offset_a + 6], a[offset_a + 7]);	
+	b[local_idx] = vec1.s0 + vec1.s1 + vec1.s2 + vec1.s3 + vec2.s0 + vec2.s1 + vec2.s2 + vec2.s3;
 	/* AFTER the barrier, B is completely available to all other items in the group */
 	/* Again: GPU does NOT need this barrier. (?)*/
 	barrier(CLK_LOCAL_MEM_FENCE);
 	
 	/* A = B*DCT_TR */
-	float res = 0.0f;
-	for (int i = 0; i < 8; i++)
-		res += b[b_row_offset *  8 + i] * dct_coeffs_tr[i*8 + b_col_offset];
+	vec1 = (float4) (b[offset_dct], b[offset_dct + 1],b[offset_dct + 2],b[offset_dct + 3]) *
+				(float4) (dct_coeffs[offset_a], dct_coeffs[offset_a + 1], dct_coeffs[offset_a + 2], dct_coeffs[offset_a + 3]);
+	vec2 = (float4) (b[offset_dct + 4], b[offset_dct + 5],b[offset_dct + 6],b[offset_dct + 7]) *
+				(float4) (dct_coeffs[offset_a + 4], dct_coeffs[offset_a + 5], dct_coeffs[offset_a + 6], dct_coeffs[offset_a + 7]);	
 		
 	/* Quantization, permutation */
-	a[permut[local_idx]] = (int16_t) rint(res / quantization_factors[local_idx]);
+	tmp[permut[local_idx]] = (int16_t) rint((vec1.s0 + vec1.s1 + vec1.s2 + vec1.s3 + vec2.s0 + vec2.s1 + vec2.s2 + vec2.s3) / quantization_factors[local_idx]);
 	
     if(format == PPP_IMGFMT_UNCOMPRESSED_DCT) {
 		barrier(CLK_LOCAL_MEM_FENCE);
-        frame[b_offset +local_idx] = a[local_idx];
+        frame[idx] = tmp[local_idx];
 		
         /* We're done in this case. */
         return;
@@ -266,6 +265,6 @@ kernel void encode_image(global uint8_t *image,
     barrier(CLK_LOCAL_MEM_FENCE);
 	
     if(b_col_offset == 0 && b_row_offset == 0) {
-		frame[(b_num+1)*96 + b_num] = compress_data(a, &(frame[b_num*97]));
+		frame[(b_num+1)*96 + b_num] = compress_data(tmp, &(frame[b_num*97]));
 	}
 }
