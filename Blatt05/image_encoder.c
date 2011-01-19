@@ -155,8 +155,8 @@ static ppp_frame *encode_opencl(uint8_t *image, const ppp_image_info *info,
 	clSetKernelArg(kernel, 2, sizeof(cl_uint), &columns);
 	clSetKernelArg(kernel, 3, sizeof(cl_uint), &format);
 	clSetKernelArg(kernel, 4, sizeof(cl_mem),  &frameGPU);
-	clSetKernelArg(kernel, 5, sizeof(int16_t) * 64,  NULL);
-	clSetKernelArg(kernel, 6, sizeof(float) * 64,  NULL);
+	// clSetKernelArg(kernel, 5, sizeof(int16_t) * 64,  NULL);
+	// clSetKernelArg(kernel, 6, sizeof(float) * 64,  NULL);
 	
 	/* Set the work group size and global number of work items for the kernel. */
 	size_t work_dims = 2;
