@@ -41,15 +41,15 @@ constant float dct_coeffs_tr[64] __attribute__ ((aligned(sizeof(float)))) = {
                   0.3535534f ,  -0.27778542f ,  0.19134195f  , -9.754577e-2f
 };
 
-constant float dct_coeffs[64] __attribute__ ((aligned(sizeof(float)))) = {
-	0.35355338f,0.35355338f,0.35355338f,0.35355338f,0.35355338f,0.35355338f,0.35355338f,0.35355338f,
-	0.49039263f,0.4157348f,0.2777851f,9.754512e-2f,-9.754516e-2f,-0.27778518f,-0.41573483f,-0.49039266f,
-	0.46193978f,0.19134171f,-0.19134176f,-0.46193978f,-0.46193978f,-0.19134156f,0.1913418f,0.46193978f,
-	0.4157348f,-9.754516e-2f,-0.49039266f,-0.277785f,0.2777852f,0.49039263f,9.7545035e-2f,-0.4157349f,
-	0.35355338f,-0.35355338f,-0.35355332f,0.3535535f,0.35355338f,-0.35355362f,-0.35355327f,0.3535534f,
-	0.2777851f,-0.49039266f,9.754521e-2f,0.41573468f,-0.4157349f,-9.754511e-2f,0.49039266f,-0.27778542f,
-	0.19134171f,-0.46193978f,0.46193978f,-0.19134195f,-0.19134149f,0.46193966f,-0.46193987f,0.19134195f,
-	9.754512e-2f,-0.277785f,0.41573468f,-0.4903926f,0.4903927f,-0.4157348f,0.27778557f,-9.754577e-2f,
+constant float8 dct_coeffs[8] __attribute__ ((aligned(sizeof(float)))) = {
+	(float8) (0.35355338f,0.35355338f,0.35355338f,0.35355338f,0.35355338f,0.35355338f,0.35355338f,0.35355338f),
+	(float8) (0.49039263f,0.4157348f,0.2777851f,9.754512e-2f,-9.754516e-2f,-0.27778518f,-0.41573483f,-0.49039266f),
+	(float8) (0.46193978f,0.19134171f,-0.19134176f,-0.46193978f,-0.46193978f,-0.19134156f,0.1913418f,0.46193978f),
+	(float8) (0.4157348f,-9.754516e-2f,-0.49039266f,-0.277785f,0.2777852f,0.49039263f,9.7545035e-2f,-0.4157349f),
+	(float8) (0.35355338f,-0.35355338f,-0.35355332f,0.3535535f,0.35355338f,-0.35355362f,-0.35355327f,0.3535534f),
+	(float8) (0.2777851f,-0.49039266f,9.754521e-2f,0.41573468f,-0.4157349f,-9.754511e-2f,0.49039266f,-0.27778542f),
+	(float8) (0.19134171f,-0.46193978f,0.46193978f,-0.19134195f,-0.19134149f,0.46193966f,-0.46193987f,0.19134195f),
+	(float8) (9.754512e-2f,-0.277785f,0.41573468f,-0.4903926f,0.4903927f,-0.4157348f,0.27778557f,-9.754577e-2f)
 };
 
 /*
@@ -193,66 +193,54 @@ int compress_data(const __local int16_t *input, global uint8_t *codes) {
     return pos/2;
 }
 
+/* Union type to dynamically address single elements of the float8 vector type. */
+union v_mask{ float8 v; float f[8]; };
+
 kernel void encode_image(global uint8_t *image,
                          uint rows, uint columns, enum ppp_image_format format,
                          global uint8_t *frame) {
 	local int16_t tmp[64];
-	local float a[64] __attribute__ ((aligned(sizeof(float))));
-	local float b[64] __attribute__ ((aligned(sizeof(float))));
-    int col = get_global_id(0);
-    int row = get_global_id(1);
-	int b_col = col / 8;
-	int b_row = row / 8;
+	local union v_mask a[8] __attribute__ ((aligned(sizeof(float))));
+	local union v_mask b[8] __attribute__ ((aligned(sizeof(float))));
+	int b_col = get_global_id(0) / 8;
+	int b_row = get_global_id(1) / 8;
 	int b_num = b_col + (get_global_size(0)/8)*b_row;
 	int b_col_offset = get_local_id(0);
 	int b_row_offset = get_local_id(1);
-	int b_offset = b_row * 8 * columns + b_col * 64;
 	int local_idx = b_row_offset*8 + b_col_offset;
-	int local_idx_tr = b_col_offset*8 + b_row_offset;
-	int pixel = row * columns + col;
+	int idx = b_row * 8 * columns + b_col * 64 + local_idx;
 	
-	
-	/* FIRST STEP: Order the bytes blockwise from image to frame array. */
-	int idx = b_offset + local_idx;
-	
-	/* Local mem is way faster (100x) than global mem. */
-	a[local_idx_tr] = image[pixel] - 128;
+	/* 
+	*	FIRST STEP: Macroblock-major order of bytes.
+	*	The respective macroblock is stored in transposed form to
+	*	access it row-wise later on.
+	*/
+	a[b_col_offset].f[b_row_offset] = image[get_global_id(1) * columns +  get_global_id(0)] - 128;
 	
 	if(format == PPP_IMGFMT_UNCOMPRESSED_BLOCKS) {
-    	frame[idx] = a[local_idx_tr];
+    	frame[idx] = a[b_col_offset].f[b_row_offset];
     	
     	/* Kernel is done in this case! */
     	return;
     }
 	
-	/* GPU does NOT need this barrier. (?)*/
     barrier(CLK_LOCAL_MEM_FENCE);
     
-    /* SECOND STEP: DCT transformation */
+    /* SECOND STEP: DCT transformation. */
      
-	/* B = DCT*M */
-	int offset_dct = 8 * b_row_offset, offset_a = 8 * b_col_offset;
-	float4 vec1 = (float4) (dct_coeffs[offset_dct], dct_coeffs[offset_dct + 1],dct_coeffs[offset_dct + 2],dct_coeffs[offset_dct + 3]);
-	float4 vec2 = (float4) (dct_coeffs[offset_dct + 4], dct_coeffs[offset_dct + 5],dct_coeffs[offset_dct + 6],dct_coeffs[offset_dct + 7]);
-	float4 vec3 = (float4) (a[offset_a], a[offset_a + 1], a[offset_a + 2], a[offset_a + 3]);
-	float4 vec4 = (float4) (a[offset_a + 4], a[offset_a + 5], a[offset_a + 6], a[offset_a + 7]);	
-	b[local_idx] = dot(vec1,vec3) + dot(vec2, vec4);
+	/* B = DCT*A */
+	b[b_row_offset].f[b_col_offset] = dot(dct_coeffs[b_row_offset].lo,a[b_col_offset].v.lo)
+		+ dot(dct_coeffs[b_row_offset].hi, a[b_col_offset].v.hi);
 	
-	/* AFTER the barrier, B is completely available to all other items in the group */
-	/* Again: GPU does NOT need this barrier. (?)*/
 	barrier(CLK_LOCAL_MEM_FENCE);
 	
-	/* A = B*DCT_TR */
-	vec1 = (float4) (b[offset_dct], b[offset_dct + 1],b[offset_dct + 2],b[offset_dct + 3]);
-	vec2 = (float4) (b[offset_dct + 4], b[offset_dct + 5],b[offset_dct + 6],b[offset_dct + 7]);		
-	vec3 = (float4) (dct_coeffs[offset_a], dct_coeffs[offset_a + 1], dct_coeffs[offset_a + 2], dct_coeffs[offset_a + 3]);
-	vec4 = (float4) (dct_coeffs[offset_a + 4], dct_coeffs[offset_a + 5], dct_coeffs[offset_a + 6], dct_coeffs[offset_a + 7]);	
-		
-	/* Quantization, permutation */
-	tmp[permut[local_idx]] = (int16_t) rint((dot(vec1,vec3) + dot(vec2, vec4)) / quantization_factors[local_idx]);
+	/* TMP = B*DCT^tr and quantization as well as permutation. */	
+	tmp[permut[local_idx]] = (int16_t) rint((dot(b[b_row_offset].v.lo,dct_coeffs[b_col_offset].lo)
+		+ dot(b[b_row_offset].v.hi, dct_coeffs[b_col_offset].hi)) / quantization_factors[local_idx]);
+	
+	barrier(CLK_LOCAL_MEM_FENCE);
 	
     if(format == PPP_IMGFMT_UNCOMPRESSED_DCT) {
-		barrier(CLK_LOCAL_MEM_FENCE);
         frame[idx] = tmp[local_idx];
 		
         /* We're done in this case. */
@@ -260,10 +248,6 @@ kernel void encode_image(global uint8_t *image,
     }
     
     /* THIRD STEP: Compression */
-    
-	/* Barrier to ensure memory consistency */
-	/* And Again: GPU does NOT need this barrier. (?)*/
-    barrier(CLK_LOCAL_MEM_FENCE);
 	
     if(b_col_offset == 0 && b_row_offset == 0) {
 		frame[(b_num+1)*96 + b_num] = compress_data(tmp, &(frame[b_num*97]));
