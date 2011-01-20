@@ -22,7 +22,7 @@ enum ppp_image_format {
 /*
  * Coefficients of the matrix A^tr to be used in DCT computation
  */
-constant float dct_coeffs_tr[64] __attribute__ ((aligned(16))) = {
+constant float dct_coeffs_tr[64] __attribute__ ((aligned(sizeof(float)))) = {
     0.35355338f,  0.49039263f ,  0.46193978f ,  0.4157348f   ,
                   0.35355338f ,  0.2777851f  ,  0.19134171f  , 9.754512e-2f,
     0.35355338f,  0.4157348f  ,  0.19134171f , -9.754516e-2f ,
@@ -41,7 +41,7 @@ constant float dct_coeffs_tr[64] __attribute__ ((aligned(16))) = {
                   0.3535534f ,  -0.27778542f ,  0.19134195f  , -9.754577e-2f
 };
 
-constant float dct_coeffs[64] __attribute__ ((aligned(16))) = {
+constant float dct_coeffs[64] __attribute__ ((aligned(sizeof(float)))) = {
 	0.35355338f,0.35355338f,0.35355338f,0.35355338f,0.35355338f,0.35355338f,0.35355338f,0.35355338f,
 	0.49039263f,0.4157348f,0.2777851f,9.754512e-2f,-9.754516e-2f,-0.27778518f,-0.41573483f,-0.49039266f,
 	0.46193978f,0.19134171f,-0.19134176f,-0.46193978f,-0.46193978f,-0.19134156f,0.1913418f,0.46193978f,
@@ -196,9 +196,9 @@ int compress_data(const __local int16_t *input, global uint8_t *codes) {
 kernel void encode_image(global uint8_t *image,
                          uint rows, uint columns, enum ppp_image_format format,
                          global uint8_t *frame) {
-	local int16_t tmp[64] __attribute__ ((aligned(16)));
-	local float a[64] __attribute__ ((aligned(16)));
-	local float b[64] __attribute__ ((aligned(16)));
+	local int16_t tmp[64];
+	local float a[64] __attribute__ ((aligned(sizeof(float))));
+	local float b[64] __attribute__ ((aligned(sizeof(float))));
     int col = get_global_id(0);
     int row = get_global_id(1);
 	int b_col = col / 8;
@@ -232,23 +232,24 @@ kernel void encode_image(global uint8_t *image,
      
 	/* B = DCT*M */
 	int offset_dct = 8 * b_row_offset, offset_a = 8 * b_col_offset;
-	float4 vec1 = (float4) (dct_coeffs[offset_dct], dct_coeffs[offset_dct + 1],dct_coeffs[offset_dct + 2],dct_coeffs[offset_dct + 3]) *
-				(float4) (a[offset_a], a[offset_a + 1], a[offset_a + 2], a[offset_a + 3]);
-	float4 vec2 = (float4) (dct_coeffs[offset_dct + 4], dct_coeffs[offset_dct + 5],dct_coeffs[offset_dct + 6],dct_coeffs[offset_dct + 7]) *
-				(float4) (a[offset_a + 4], a[offset_a + 5], a[offset_a + 6], a[offset_a + 7]);	
-	b[local_idx] = vec1.s0 + vec1.s1 + vec1.s2 + vec1.s3 + vec2.s0 + vec2.s1 + vec2.s2 + vec2.s3;
+	float4 vec1 = (float4) (dct_coeffs[offset_dct], dct_coeffs[offset_dct + 1],dct_coeffs[offset_dct + 2],dct_coeffs[offset_dct + 3]);
+	float4 vec2 = (float4) (dct_coeffs[offset_dct + 4], dct_coeffs[offset_dct + 5],dct_coeffs[offset_dct + 6],dct_coeffs[offset_dct + 7]);
+	float4 vec3 = (float4) (a[offset_a], a[offset_a + 1], a[offset_a + 2], a[offset_a + 3]);
+	float4 vec4 = (float4) (a[offset_a + 4], a[offset_a + 5], a[offset_a + 6], a[offset_a + 7]);	
+	b[local_idx] = dot(vec1,vec3) + dot(vec2, vec4);
+	
 	/* AFTER the barrier, B is completely available to all other items in the group */
 	/* Again: GPU does NOT need this barrier. (?)*/
 	barrier(CLK_LOCAL_MEM_FENCE);
 	
 	/* A = B*DCT_TR */
-	vec1 = (float4) (b[offset_dct], b[offset_dct + 1],b[offset_dct + 2],b[offset_dct + 3]) *
-				(float4) (dct_coeffs[offset_a], dct_coeffs[offset_a + 1], dct_coeffs[offset_a + 2], dct_coeffs[offset_a + 3]);
-	vec2 = (float4) (b[offset_dct + 4], b[offset_dct + 5],b[offset_dct + 6],b[offset_dct + 7]) *
-				(float4) (dct_coeffs[offset_a + 4], dct_coeffs[offset_a + 5], dct_coeffs[offset_a + 6], dct_coeffs[offset_a + 7]);	
+	vec1 = (float4) (b[offset_dct], b[offset_dct + 1],b[offset_dct + 2],b[offset_dct + 3]);
+	vec2 = (float4) (b[offset_dct + 4], b[offset_dct + 5],b[offset_dct + 6],b[offset_dct + 7]);		
+	vec3 = (float4) (dct_coeffs[offset_a], dct_coeffs[offset_a + 1], dct_coeffs[offset_a + 2], dct_coeffs[offset_a + 3]);
+	vec4 = (float4) (dct_coeffs[offset_a + 4], dct_coeffs[offset_a + 5], dct_coeffs[offset_a + 6], dct_coeffs[offset_a + 7]);	
 		
 	/* Quantization, permutation */
-	tmp[permut[local_idx]] = (int16_t) rint((vec1.s0 + vec1.s1 + vec1.s2 + vec1.s3 + vec2.s0 + vec2.s1 + vec2.s2 + vec2.s3) / quantization_factors[local_idx]);
+	tmp[permut[local_idx]] = (int16_t) rint((dot(vec1,vec3) + dot(vec2, vec4)) / quantization_factors[local_idx]);
 	
     if(format == PPP_IMGFMT_UNCOMPRESSED_DCT) {
 		barrier(CLK_LOCAL_MEM_FENCE);
