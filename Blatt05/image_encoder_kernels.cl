@@ -83,33 +83,6 @@ constant int quantization_factors[64] = {
 };
 
 /*
- * Computes M = A*M*A_tr
- */
-void mm_tr(constant float A_tr[64], float *M) {
-    float AM[64];
-
-    /* Compute AM = A*M */
-    for (int y=0; y<8; y++) {
-        for (int x=0; x<8; x++) {
-            float acc = 0.0f;
-            for (int i=0; i<8; i++)
-                acc += A_tr[i*8+y] * M[8*i+x]; /* A_tr must be addressed so that we get A */
-            AM[y*8+x] = acc;
-        }
-    }
-
-    /* Compute M = (AM)*A_tr */
-    for (int y=0; y<8; y++) {
-        for (int x=0; x<8; x++) {
-            float acc = 0.0f;
-            for (int i=0; i<8; i++)
-                acc += AM[y*8+i] * A_tr[8*i+x]; /* A_tr must be addressed so that we get A */
-            M[y*8+x] = acc;
-        }
-    }
-}
-
-/*
  * Return the value for the first nibble of the
  * encoding of 'val' (val /= 0).
  */
@@ -215,15 +188,15 @@ kernel void encode_image(global uint8_t *image,
 	*	The respective macroblock is stored in transposed form to
 	*	access it row-wise later on.
 	*/
-	a[b_col_offset].f[b_row_offset] = image[get_global_id(1) * columns +  get_global_id(0)] - 128;
 	
 	if(format == PPP_IMGFMT_UNCOMPRESSED_BLOCKS) {
-    	frame[idx] = a[b_col_offset].f[b_row_offset];
+    	frame[idx] =  image[get_global_id(1) * columns +  get_global_id(0)] - 128;
     	
     	/* Kernel is done in this case! */
     	return;
     }
 	
+	a[b_col_offset].f[b_row_offset] = image[get_global_id(1) * columns +  get_global_id(0)] - 128;
     barrier(CLK_LOCAL_MEM_FENCE);
     
     /* SECOND STEP: DCT transformation. */
