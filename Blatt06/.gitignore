@@ -3,5 +3,6 @@ image_encoder
 video_encoder
 videos-blatt6
 viewer
+vids
 *.avi
 *~

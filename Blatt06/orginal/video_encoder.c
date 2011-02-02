@@ -477,6 +477,11 @@ static int encode_video_cl(video *video, FILE *f, const ppp_image_info *info,
     const bool compr     = format == PPP_IMGFMT_COMPRESSED_DCT;
     const size_t max_enc_bytes = max_encoded_length(64)*n_blocks;
 
+    if (!compr) {
+        fprintf(stderr, "Compression must be enabled for OpenCL implementation\n");
+        return -1;
+    }
+
     encoder_stats_init();
 
     frame = video_alloc_frame(video);
@@ -648,7 +653,7 @@ static int encode_video_cl(video *video, FILE *f, const ppp_image_info *info,
                     frameData += len;
                 }
 
-                res = clEnqueueUnmapMemObject(queue, offsets_and_sizesGPU, framePtr,
+                res = clEnqueueUnmapMemObject(queue, offsets_and_sizesGPU, offsets_and_sizes,
                                               0, NULL, NULL);
                 if (res != CL_SUCCESS)
                     error_and_abort("Could not unmap 'offsets_and_sizesGPU'", res);

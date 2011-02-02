@@ -29,33 +29,6 @@ typedef uchar uint8_t;
 #endif
 
 
-typedef struct {
-    /* we do not use {B,C} and comprTemp at the same time, so
-     * we can store them in the same location (using a union)
-     */
-    union {
-        struct {
-            /* matrix B (DCT input) */
-            float B[64] __attribute__((aligned(16)));
-            
-            /* matrix C (DCT output) */
-            float C[64] __attribute__((aligned(16))); 
-        };
-
-        /* buffer for reduction (2*64) and nibbles (192)
-         * used during compression
-         */
-#ifdef COMPR_ATOM_OR
-        int comprTemp[2*64];
-#else
-        int comprTemp[192];
-#endif
-    };
-
-    /* result of DCT, quantization and permutation */
-    int16_t qdct_res[64];
-} scratch;
-
 
 uint8_t first_nibble(int16_t val) {
     if (val == 1)
@@ -234,7 +207,8 @@ int compress_block_red(local const int16_t input[64],
 
     int myPNZ = prevNonZero[self];
     int pnz63 = prevNonZero[63];
-    barrier(0); /* we overwrite the scan buffers below */
+    /* barrier(0) would suffice but does not work on NVIDIA */
+    barrier(CLK_LOCAL_MEM_FENCE); /* we overwrite the scan buffers below */
 
     /* Number of zeros between the last non-zero value and the
      * current value (including the current value if it is 0).
@@ -508,62 +482,32 @@ void mmm64dot(constant float A[64], local const float B[64],
     barrier(CLK_LOCAL_MEM_FENCE);
 }
 
-void qdct_block(local scratch *s) {
-    const size_t self = get_local_id(0) + get_local_id(1)*get_local_size(0);
-    const size_t np   = get_local_size(0)*get_local_size(1);
+/*
+ * Compute DCT of 'B' (with quantization and permutation)
+ * and store result in 'ff'.
+ */
+void qdct_block(local float B[64], local int16_t ff[64],
+                local float4 temp[16]) {
+    const uint r = get_local_id(1);
+    const uint c = get_local_id(0);
+    const uint self = 8*r+c;
 
-    // mmm64(dct_coeffs, s->B, s->C);
-    mmm64dot(dct_coeffs, s->B, s->C);
-    
-    for (int i=self; i<64; i+=np)
-        s->qdct_res[permut[i]] = round(s->C[i] / quantization_factors[i]);
+    constant float4 *A4 = (constant float4 *)dct_coeffs;
+    local    float4 *B4 = (local float4 *)B;
+    local    float4 *BAtr_tr4 = temp;
+    local    float  *BAtr_tr  = (local float *)BAtr_tr4;
 
+    /* Compute B*A^tr */
+    BAtr_tr[8*c+r] = dot(B4[2*r], A4[2*c]) + dot(B4[2*r+1], A4[2*c+1]);
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    /* Compute A * (B*A^tr) */
+    float Cval = dot(A4[2*r], BAtr_tr4[2*c]) + dot(A4[2*r+1], BAtr_tr4[2*c+1]);
+
+    ff[permut[self]] = round(Cval / quantization_factors[self]);
     barrier(CLK_LOCAL_MEM_FENCE);
 }
 
-void process_block(global uint8_t *image, int format, int columns,
-                   local uint8_t *result, local size_t *size,
-                   local scratch *s) {
-    const size_t self = get_local_id(0) + get_local_id(1)*get_local_size(0);
-    const size_t np   = get_local_size(0) * get_local_size(1);
-
-    switch(format) {
-    case 0: {
-        /* Reorder block directly to the output location */
-        for (int i=self; i<64; i+=np)
-            result[i] = (uint8_t)(image[(i/8)*columns + (i%8)] - 128);
-        *size = 64;
-        break;
-    }
-    case 1: {
-        /* Reorder block to scratchpad */
-        for (int i=self; i<64; i+=np)
-            s->B[i] = image[(i/8)*columns + (i%8)] - 128;
-        barrier(CLK_LOCAL_MEM_FENCE);
-
-        /* Compute DCT and store the result of the DCT to the output location */
-        qdct_block(s);
-        for (int i=self; i<64; i+=np)
-            result[i] = (uint8_t)s->qdct_res[i];
-        *size = 64;
-        break;
-    }
-    case 2:
-        /* Reorder block to scratchpad */
-        for (int i=self; i<64; i+=np)
-            s->B[i] = image[(i/8)*columns + (i%8)] - 128;
-        barrier(CLK_LOCAL_MEM_FENCE);
-
-        /* Compute DCT and call compression */
-        qdct_block(s);
-        // *size = compress_block_simple(qdct_res, result);
-        *size = compress_block_red(s->qdct_res, result, s->comprTemp);
-        break;
-    default:
-        *size = 64;
-    }
-    barrier(CLK_LOCAL_MEM_FENCE);
-}
 
 /*
  * Each block corresponds to a work group with 64 threads.
@@ -575,7 +519,7 @@ __attribute__((reqd_work_group_size(8, 8, 1)))
 kernel void encode_frame(global uint8_t *image, int rows, int columns,
                          int format, global uint *size,
                          global uint *offsets_and_sizes,
-                         global uint8_t *tempframe) {
+                         global uint8_t *frame) {
     const size_t self = get_local_id(0) + get_local_id(1)*get_local_size(0);
     const size_t np   = get_local_size(0) * get_local_size(1);
     const uint blockX = get_group_id(0);
@@ -583,9 +527,8 @@ kernel void encode_frame(global uint8_t *image, int rows, int columns,
     const uint block_nr = blockY*(columns/8) + blockX;
     const uint n_blocks = (columns/8)*(rows/8);
 
-    local scratch s;
-    local uint8_t output[96];
-    local size_t len;
+    local uint8_t result[96];
+    size_t len;
 
     const bool compr  =  format == 2;  // Is compression (-c) requested?
 
@@ -600,16 +543,64 @@ kernel void encode_frame(global uint8_t *image, int rows, int columns,
         *size = compr ? 0 : 64*n_blocks;
     barrier(CLK_GLOBAL_MEM_FENCE);
 
-    size_t off;
-    
-    process_block(image + 8*blockY*columns + 8*blockX,
-                  format, columns, output, &len,
-                  &s);
+    global uint8_t *current = image + 8*blockY*columns + 8*blockX;
+
+    local int16_t ff[64];
+
+    /* Temporary space for compression (comprTemp) is not
+     * used at the same time as 'temp' and B4 (which are for qdct_block())
+     * but 'temp' and 'B4' are both used in qdct_block(), so we
+     * can use a union to store 'comprTemp' in the same
+     * memory area as 'temp' and 'B4' to save some space in local memory.
+     */
+    local union {
+        struct {
+            float4 temp[16];
+            float4 B4[16];
+        };
+        int comprTemp[192];
+    } t;
+    local float *B = (local float *)t.B4;
+
+    switch(format) {
+    case 0: {
+        /* Reorder block directly to the output location */
+        result[self] = (int)current[(self/8)*columns + (self%8)] - 128;
+        len = 64;
+        break;
+    }
+    case 1: {
+        /* Reorder block to scratchpad */
+        B[self] = (int)current[(self/8)*columns + (self%8)] - 128;
+        barrier(CLK_LOCAL_MEM_FENCE);
+
+        /* Compute DCT and store the result of the DCT to the output location */
+        qdct_block(B, ff, t.temp);
+        result[self] = (uint8_t)ff[self];
+        len = 64;
+        break;
+    }
+    case 2:
+        /* Reorder block to scratchpad */
+        B[self] = (int)current[(self/8)*columns + (self%8)] - 128;
+        barrier(CLK_LOCAL_MEM_FENCE);
+
+        /* Compute DCT and call compression */
+        qdct_block(B, ff, t.temp);
+        // *size = compress_block_simple(qdct_res, result);
+        len = compress_block_red(ff, result, t.comprTemp);
+        break;
+    default:
+        len = 0;
+    }
+    barrier(CLK_LOCAL_MEM_FENCE);
+
     /* When compression is not enabled, our data has to be put
      * at 64*block_nr. With compression, we store the output data
      * contiguously, but we cannot guarantee the order (the CPU
      * will reorder the data later).
      */
+    size_t off;
     if (compr) {
         /* Atomically increment 'size' by 'len'. The return value
          * (l_off) is the old value of 'size', i.e., the offset where
@@ -628,7 +619,7 @@ kernel void encode_frame(global uint8_t *image, int rows, int columns,
      * to do so. We have to wait for the completion of the
      * copy using wait_group_events() below.
      */
-    event_t ev = async_work_group_copy(&tempframe[off], output, len, 0);
+    event_t ev = async_work_group_copy(&frame[off], result, len, 0);
     if (self == 0) {
         /* Write out the offset and the length of our data so
          * the CPU knows to find the data for our block.
