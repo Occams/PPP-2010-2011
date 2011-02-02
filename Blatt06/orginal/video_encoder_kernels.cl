@@ -236,7 +236,7 @@ int compress_block_red(local const int16_t input[64],
 
     int myPNZ = prevNonZero[selfT];
     int pnz63 = prevNonZero[63];
-    barrier(0); /* we overwrite the scan buffers below */
+    barrier(CLK_LOCAL_MEM_FENCE); /* we overwrite the scan buffers below */
 
     /* Number of zeros between the last non-zero value and the
      * current value (including the current value if it is 0).
