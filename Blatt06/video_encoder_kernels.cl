@@ -236,7 +236,7 @@ int compress_block_red(local const int16_t input[64],
 
     int myPNZ = prevNonZero[selfT];
     int pnz63 = prevNonZero[63];
-    barrier(0); /* we overwrite the scan buffers below */
+    barrier(CLK_LOCAL_MEM_FENCE); /* we overwrite the scan buffers below */
 
     /* Number of zeros between the last non-zero value and the
      * current value (including the current value if it is 0).
@@ -437,6 +437,16 @@ void iqdct_block(local const int16_t ff[64], local int16_t f[64],
     barrier(CLK_LOCAL_MEM_FENCE);
 }
 
+inline ppp_motion motion_code(int deltaY, int deltaX) {
+    if (abs(deltaY) <= 127 && abs(deltaX) <= 127) {
+        ppp_motion bm;
+        bm.motionY = deltaY;
+        bm.motionX = deltaX;
+        return bm;
+    }
+    return PPP_MOTION_INTRA;
+}
+
 kernel void encode_video_frame(global uint8_t *image, global int8_t *old_image,
                                int motion_search,
                                int rows, int columns, int format,
@@ -453,9 +463,12 @@ kernel void encode_video_frame(global uint8_t *image, global int8_t *old_image,
     local int16_t block[64];
     local int16_t intra_qdct[64];
     local uint8_t intra_compr[96];
+    
+    local int16_t deltas_qdct[64];
+    local uint8_t deltas_compr[96];
 
     int yy, xx;
-    int len;
+    int len, delta_len;
 
     yy = blockY * 8;
     xx = blockX * 8;
@@ -475,32 +488,155 @@ kernel void encode_video_frame(global uint8_t *image, global int8_t *old_image,
     qdct_block(block, intra_qdct, temp);
     len = compress_block_red(intra_qdct, intra_compr, comprTemp);
 
-    /* Determine location where to put our data in output
-     * (CPU will reorder blocks)
+    
+    /*
+     * Motion estimation
      */
-    local size_t l_off;
-    if (self == 0)
-        l_off = atom_add(size, len);
-    barrier(CLK_LOCAL_MEM_FENCE);
-    size_t off = l_off;
-
-    /* Write data to output */
-    event_t ev;
-    global int8_t *current = (global int8_t *)&image    [yy*columns + xx];
-    ev = async_work_group_copy(&frame[off], intra_compr, len, 0);
-        
-    /* Decode block and replace pixels in current frame */
-    iqdct_block(intra_qdct, block, temp);
-    int16_t newpixel = block[selfT];
-    current[myY*columns + myX] = clamp_pixel_value(newpixel);
-
-    /* Write offset and length so CPU knows where to find
-     * data for this block.
-     */
-    if (self == 0) {
-        offsets_and_sizes[2*block_nr]   = off;
-        offsets_and_sizes[2*block_nr+1] = len;
+    local uint8_t max_dist;
+    local pt center,current;
+    switch (motion_search) {
+        case MS_DIAMOND: max_dist = 32; break;
+        default: max_dist = 0;
     }
-    barrier(CLK_GLOBAL_MEM_FENCE);
-    wait_group_events(1, &ev);        
+    
+   if (motion_search != MS_NONE) {
+        center.y = current.y = yy;
+        center.x = current.x = xx;
+        
+        local int min_err;
+        private int dist = max_dist;
+        private pt p;
+        private int i;
+        
+        for (dist=max_dist; dist>=1; dist=dist/2) {
+            for(i = 0; i < 8; i++) {
+                p.y = center.y + diamond_offsets[i].y * dist;
+                p.x = center.x + diamond_offsets[i].x * dist;
+
+                /* Skip the current offset if it points beyond the borders */
+                if (p.y < 0 || p.x < 0 || p.y > rows-8 || p.x > columns-8)
+                    continue;
+
+                local int s;
+                s = 0;
+                atom_add(&s, abs(block[8*myY+myX] - old_image[(p.y+myY)*columns + p.x+myX]));
+
+                if (self == 0 && s < min_err) {
+                    current.x = p.x;
+                    current.y = p.y;
+                    min_err = s;
+                }
+                barrier(CLK_LOCAL_MEM_FENCE);
+            }
+            
+            if(self == 0)
+                center = current;
+            barrier(CLK_LOCAL_MEM_FENCE);
+        }
+
+        for(i = 0; i < 4; i++) {
+            p.y = center.y + vh_offsets[i].y;
+            p.x = center.x + vh_offsets[i].x;
+
+            /* Skip the current offset if it points beyond the borders */
+            if (p.y < 0 || p.x < 0 || p.y > rows-8 || p.x > columns-8)
+                continue;
+
+            local int s;
+            s = 0;
+            atom_add(&s, abs(block[8*myY+myX] - old_image[(p.y+myY)*columns + p.x+myX]));
+
+            if (self == 0 && s < min_err) {
+                current.x = p.x;
+                current.y = p.y;
+                min_err = s;
+             }
+             barrier(CLK_LOCAL_MEM_FENCE);
+        }
+        if(self == 0)
+            center = current;
+        barrier(CLK_LOCAL_MEM_FENCE);
+        
+        local int16_t deltas[64];
+        deltas[8*myY+myX] = block[8*myY+myX] - old_image[(center.y+myY)*columns + p.x+myX];
+        
+        qdct_block(deltas, deltas_qdct, temp);
+        delta_len = compress_block_red(deltas_qdct, deltas_compr, comprTemp);
+    } else
+        delta_len = len;
+        
+    barrier(CLK_LOCAL_MEM_FENCE);
+    
+    
+    if (len <= delta_len) {
+        /* Determine location where to put our data in output
+         * (CPU will reorder blocks)
+         */
+        local size_t l_off;
+        if (self == 0)
+            l_off = atom_add(size, len);
+        barrier(CLK_LOCAL_MEM_FENCE);
+        size_t off = l_off;
+
+        /* Write data to output */
+        event_t ev;
+        global int8_t *current = (global int8_t *)&image[yy*columns + xx];
+        ev = async_work_group_copy(&frame[off], intra_compr, len, 0);
+            
+        /* Decode block and replace pixels in current frame */
+        iqdct_block(intra_qdct, block, temp);
+        int16_t newpixel = block[selfT];
+        current[myY*columns + myX] = clamp_pixel_value(newpixel);
+
+        /* Write offset and length so CPU knows where to find
+         * data for this block.
+         */
+        if (self == 0) {
+            offsets_and_sizes[2*block_nr]   = off;
+            offsets_and_sizes[2*block_nr+1] = len;
+        }
+        barrier(CLK_GLOBAL_MEM_FENCE);
+        wait_group_events(1, &ev);
+        
+    } else {
+        /* Determine location where to put our data in output
+         * (CPU will reorder blocks)
+         */
+        local size_t l_off;
+        if (self == 0)
+            l_off = atom_add(size, delta_len);
+        barrier(CLK_LOCAL_MEM_FENCE);
+        size_t off = l_off;
+
+        /* Write data to output */
+        event_t ev;
+        global int8_t *current = (global int8_t *)&image[yy*columns + xx];
+        ev = async_work_group_copy(&frame[off], deltas_compr, delta_len, 0);
+            
+        /* Decode block and replace pixels in current frame */
+        iqdct_block(deltas_qdct, block, temp);
+        int16_t newpixel = block[selfT] + old_image[(center.y+myY)*columns + center.x+myX];
+        current[myY*columns + myX] = clamp_pixel_value(newpixel);
+
+        /* Write offset and length so CPU knows where to find
+         * data for this block.
+         */
+        if (self == 0) {
+            offsets_and_sizes[2*block_nr]   = off;
+            offsets_and_sizes[2*block_nr+1] = delta_len;
+        }
+        
+        motions[block_nr] = motion_code(center.y-yy, center.x-xx);
+        
+        barrier(CLK_GLOBAL_MEM_FENCE);
+        wait_group_events(1, &ev);
+
+        /* Set motion information for current block (i.e., mark
+         * the block as predicted instead of intra-coded.
+         * The motion vector is given in relative coordinates
+         * (as offset relative to the current block).
+         */
+        
+    }
+
 }
