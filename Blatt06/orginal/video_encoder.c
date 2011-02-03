@@ -464,7 +464,7 @@ static int encode_video_cl(video *video, FILE *f, const ppp_image_info *info,
 const options *opts, bool use_gpu) {
 	const int rows    = info->rows;
 	const int columns = info->columns;
-	const int n_blocks = (rows/8)*(columns/8);
+	const int n_blocks = (rows*columns)/64;
 
 	/* Number of frames to skip in the input */
 	const int frames_to_skip = opts->frames_to_skip;
@@ -478,7 +478,7 @@ const options *opts, bool use_gpu) {
 	const cl_uint format = info->format;
 	const bool compr     = format == PPP_IMGFMT_COMPRESSED_DCT;
 	const size_t max_enc_bytes = max_encoded_length(64)*n_blocks;
-
+	
 	if (!compr) {
 		fprintf(stderr, "Compression must be enabled for OpenCL implementation\n");
 		return -1;
@@ -492,15 +492,15 @@ const options *opts, bool use_gpu) {
 		return -1;
 	}
 
-	enc_frame = ppp_frame_alloc(max_enc_bytes);
+	enc_frame = ppp_frame_alloc(max_enc_bytes + n_blocks);
 	if (enc_frame == NULL) {
 		fprintf(stderr, "could not allocate buffer for encoded frame\n");
 		free(frame);
 		return -1;
 	}
 	
-	cl_event startEvent, endEvent, imageWriteEvent, sizeWriteEvent;
-	cl_event *event_wait_list = (cl_event *) malloc(sizeof(cl_event)*2);
+	cl_event startEvent, endEvent, imageWriteEvent;
+	cl_event *event_wait_list = (cl_event *) malloc(sizeof(cl_event));
 	
 	if (event_wait_list == NULL) {
 		fprintf(stderr, "could not allocate buffer for cl_waitlist\n");
@@ -530,23 +530,20 @@ const options *opts, bool use_gpu) {
 	cl_command_queue queue;
 	cl_program program;
 	cl_kernel kernelEncode;
-	cl_mem imageGPU, old_imageGPU, newImageGPU, offsets_and_sizesGPU, sizeGPU, frameGPU;
+	cl_mem imageGPU, old_imageGPU, newImageGPU, frameGPU;
 	cl_mem motionsGPU;
 	cl_int res;
 
 	/* Set the work group size and global number of work items.
 	*/
-	size_t work_dims = 3;
-	size_t global_work_size[] = {columns, rows, 4};
-	size_t local_work_size[] = {8, 8, 4};
-
-	cl_uint size;
+	size_t work_dims = 2;
+	size_t global_work_size[] = {columns, rows};
+	size_t local_work_size[] = {8, 8};
 
 	context = create_cl_context(use_gpu, &devid);
 	
 	/* Create a command queue (which allows timing) */
-	queue = clCreateCommandQueue(context, devid, CL_QUEUE_PROFILING_ENABLE,
-	&res);
+	queue = clCreateCommandQueue(context, devid, CL_QUEUE_PROFILING_ENABLE, &res);
 	if (queue == NULL)
 		error_and_abort("Could not create command queue", res);
 	
@@ -568,22 +565,11 @@ const options *opts, bool use_gpu) {
 	if (res != CL_SUCCESS)
 		error_and_abort("Could not allocate old_imageGPU", res);
 
-	offsets_and_sizesGPU =
-	clCreateBuffer(context, CL_MEM_READ_WRITE,
-	sizeof(cl_uint)*2*n_blocks, NULL, &res);
-	if (res != CL_SUCCESS)
-		error_and_abort("Could not allocate offsets_and_sizesGPU", res);
-
-	sizeGPU  = clCreateBuffer(context, CL_MEM_READ_WRITE,
-	sizeof(size), NULL, &res);
-	if (res != CL_SUCCESS)
-		error_and_abort("Could not allocate sizeGPU", res);
-
 	/* Allocate the buffer memory object for the result.
 	* We need at most 'max_enc_bytes' to represent the result.
 	*/
 	frameGPU = clCreateBuffer(context, CL_MEM_WRITE_ONLY,
-	max_enc_bytes, NULL, &res);
+	max_enc_bytes + n_blocks, NULL, &res);
 	if (res != CL_SUCCESS)
 		error_and_abort("Could not allocate frameGPU", res);
 
@@ -608,10 +594,8 @@ const options *opts, bool use_gpu) {
 	clSetKernelArg(kernelEncode, 3, sizeof(cl_int), &rows);
 	clSetKernelArg(kernelEncode, 4, sizeof(cl_int), &columns);
 	clSetKernelArg(kernelEncode, 5, sizeof(cl_int), &format);
-	clSetKernelArg(kernelEncode, 6, sizeof(cl_mem), &sizeGPU);
-	clSetKernelArg(kernelEncode, 7, sizeof(cl_mem), &offsets_and_sizesGPU);
-	clSetKernelArg(kernelEncode, 8, sizeof(cl_mem), &frameGPU);
-	clSetKernelArg(kernelEncode, 9, sizeof(cl_mem), &motionsGPU);
+	clSetKernelArg(kernelEncode, 6, sizeof(cl_mem), &frameGPU);
+	clSetKernelArg(kernelEncode, 7, sizeof(cl_mem), &motionsGPU);
 
 	clEnqueueMarker(queue, &startEvent);
 	
@@ -619,15 +603,9 @@ const options *opts, bool use_gpu) {
 	res = clEnqueueWriteBuffer(queue, imageGPU, CL_TRUE, 0, frame->length, frame->data, 0, NULL, &imageWriteEvent);
 	if (res != CL_SUCCESS)
 		error_and_abort("Could not enqueue image buffer write", res);
-
-	size = 0;
-	res = clEnqueueWriteBuffer(queue, sizeGPU, CL_TRUE, 0, sizeof(size), &size, 0, NULL, &sizeWriteEvent);
-	if (res != CL_SUCCESS)
-		error_and_abort("Could not enqueue image buffer write", res);
 		
 	/* Init cl_wait_list */
 	event_wait_list[0] = imageWriteEvent;
-	event_wait_list[1] = sizeWriteEvent;
 
 	/* Sequentially walk through the remaining frames of the input video. */
 	while (frame_nr < max_frames && frames_available) {
@@ -638,7 +616,7 @@ const options *opts, bool use_gpu) {
 		clSetKernelArg(kernelEncode, 2, sizeof(cl_int), &motion_search);
 
 		/* Enqueue kernel, wait for buffer write events to finish */
-		res = clEnqueueNDRangeKernel(queue, kernelEncode, work_dims, NULL, global_work_size, local_work_size, 2, event_wait_list, NULL);	
+		res = clEnqueueNDRangeKernel(queue, kernelEncode, work_dims, NULL, global_work_size, local_work_size, 1, event_wait_list, NULL);	
 		if (res != CL_SUCCESS)
 			error_and_abort("Could not enqueue kernel invocation", res);
 		
@@ -646,7 +624,7 @@ const options *opts, bool use_gpu) {
 		frames_available &= video_get_next_frame(video, frame) == 0;
 		
 		if (frames_available) {
-			res = clEnqueueWriteBuffer(queue, newImageGPU, CL_FALSE, 0, frame->length, frame->data, 0, NULL, &event_wait_list[0]);
+			res = clEnqueueWriteBuffer(queue, newImageGPU, CL_FALSE, 0, frame->length, frame->data, 0, NULL, &imageWriteEvent);
 			if (res != CL_SUCCESS)
 				error_and_abort("Could not enqueue image buffer write", res);
 				
@@ -657,46 +635,21 @@ const options *opts, bool use_gpu) {
 			newImageGPU = tmp;
 		}
 		
-		res = clEnqueueReadBuffer(queue, sizeGPU, CL_TRUE, 0, sizeof(size), &size, 0, NULL, NULL);
+		/* Copy the result from the device to the host. */
+		res = clEnqueueReadBuffer(queue, frameGPU, CL_TRUE, 0, max_enc_bytes + n_blocks, enc_frame->data, 0, NULL, NULL);
+
 		if (res != CL_SUCCESS)
 			error_and_abort("Could not enqueue buffer read", res);
 		
-		cl_int init_size = 0;
-		res = clEnqueueWriteBuffer(queue, sizeGPU, CL_FALSE, 0, sizeof(size), &init_size, 0, NULL,  &event_wait_list[1]);
-		if (res != CL_SUCCESS)
-			error_and_abort("Could not enqueue image buffer write", res);
-
-		enc_frame->length = size;
+		/* Compress encoded values by using the encoding index */
+		enc_frame->length = 0;
 		
-		/* Map 'offsets_and_sizesGPU' and 'frameGPU' into host
-		* address space and walk through the blocks copying
-		* them to 'enc_frame' in the correct position.
-		*/
-		cl_uint *offsets_and_sizes = (cl_uint *) clEnqueueMapBuffer(queue, offsets_and_sizesGPU, CL_TRUE, CL_MAP_READ, 0, sizeof(cl_uint)*2*n_blocks, 0, NULL, NULL, &res);
-		if (res != CL_SUCCESS)
-			error_and_abort("Could not enqueue buffer mapping for 'offsets_and_sizes'", res);
+        for(int i = 0; i < n_blocks; i++) {
+			int length = (int) enc_frame->data[(i+1)*96 + i];
+			memcpy(&(enc_frame->data[enc_frame->length]), &(enc_frame->data[i*97]), length);
+			enc_frame->length += length;
+        }
 		
-		uint8_t *framePtr = (uint8_t *) clEnqueueMapBuffer(queue, frameGPU, CL_TRUE, CL_MAP_READ, 0, enc_frame->length, 0, NULL, NULL, &res);
-		if (res != CL_SUCCESS)
-			error_and_abort("Could not map 'frameGPU'", res);
-		
-		uint8_t *frameData = (uint8_t *)enc_frame->data;
-		
-		for (int blk=0; blk<n_blocks; blk++) {
-			cl_uint off = offsets_and_sizes[2*blk];
-			cl_uint len = offsets_and_sizes[2*blk+1];
-			memcpy(frameData, framePtr+off, len);
-			frameData += len;
-		}
-
-		res = clEnqueueUnmapMemObject(queue, offsets_and_sizesGPU, offsets_and_sizes, 0, NULL, NULL);
-		if (res != CL_SUCCESS)
-			error_and_abort("Could not unmap 'offsets_and_sizesGPU'", res);
-		
-		res = clEnqueueUnmapMemObject(queue, frameGPU, framePtr, 0, NULL, NULL);
-		if (res != CL_SUCCESS)
-			error_and_abort("Could not unmap 'frameGPU'", res);
-
 		printf("Size: %u\n", (unsigned int)enc_frame->length);
 
 		res = clEnqueueReadBuffer(queue, motionsGPU, CL_TRUE, 0, n_blocks*sizeof(ppp_motion), motions, 0, NULL, NULL);
@@ -727,8 +680,6 @@ const options *opts, bool use_gpu) {
 	clReleaseMemObject(imageGPU);
 	clReleaseMemObject(old_imageGPU);
 	clReleaseMemObject(newImageGPU);
-	clReleaseMemObject(sizeGPU);
-	clReleaseMemObject(offsets_and_sizesGPU);
 	clReleaseMemObject(frameGPU);
 	clReleaseMemObject(motionsGPU);
 	clReleaseKernel(kernelEncode);

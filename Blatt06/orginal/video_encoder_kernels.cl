@@ -1,6 +1,6 @@
 /* Hey, Emacs, this file contains -*- c -*- code. */
 
-#pragma OPENCL EXTENSION cl_amd_printf: enable
+//#pragma OPENCL EXTENSION cl_amd_printf: enable
 
 #pragma OPENCL EXTENSION cl_khr_byte_addressable_store: enable
 
@@ -140,230 +140,6 @@ uint8_t first_nibble(int16_t val) {
         return 0xC;
 }
 
-/*
- * Compress 64 values from 'input' to 'output' returning
- * the number of bytes in 'totalBytes'.
- * Uses scans (parallel prefix sums) to parallelise the
- * computation. Return the compressed size (in bytes).
- * 'temp' is temporary storage for scans.
- */
-int compress_block_red(local const int16_t input[64],
-                       local uint8_t *codes,
-                       local int temp[192]) {
-    const int16_t val = input[selfT];
-
-    /* buffers for the scans (parallel prefix sums) */
-    local int *prevNonZero = temp, *prevNonZero2 = temp+64;
-
-    /*
-     * To determine which thread writes codes for zeros, we compute,
-     * for each index i=0,...,63 where the last (rightmost) non-zero
-     * value preceding i (including i if input[i]!=0) is. When no
-     * non-zero value precedes input[i], the result shall be -1.
-     * Formally:
-     *   prevNonZero[i] := max({-1} u {j | input[j]!=0, j<=i})
-     *
-     * This enables us to compute the number of consecutive zeros
-     * input[i] is part of (when input[i]==0) by  i-prevNonZeros[i].
-     *
-     * To compute prevNonZeros by a parallel scan (parallel prefix
-     * sum), we need to define an associative operator. Conceptually,
-     * we perform the scan on a list of pairs (length,offset) where
-     * 'length' is the number of elements in a segment of 'input'
-     * already processed and 'offset' gives the position (relative
-     * offset from the start of the segment) of the last (rightmost)
-     * non-zero value in the segment.
-     *
-     * Example: For input = { 1, 0, 0, 2, 3, 0, 0, 0 } we start the
-     * reduction with
-     *     { (1,0), (1,-1), (1,-1) (1,0), (1,0), (1,-1), (1,-1), (1,-1) }
-     * Note that all the segments have length 1 and non-zero values
-     * have offset 0 whereas zero values have offset -1 (because there
-     * is no last non-zero in the segment).
-     *
-     * The reduction operator & we now use is:
-     *
-     *                            { (l1+l2, off1)     if off2 == -1  (*1*)
-     *  (l1,off1) & (l2,off2)  =  {
-     *                            { (l1+l2, l1+off2)  otherwise      (*2*)
-     *
-     * That is, when two (neighbouring) segments are combined into
-     * one segment, the lengths are added (of course). The offset of
-     * the last non-zero value is given by 'off1' if there is no
-     * non-zero value in the right interval (i.e., off2==-1) or
-     * by l1+off2 if the last non-zero value is in the right interval.
-     *
-     * This operator is associative (as can be easily verified) and
-     * yields the offset of the last non-zero value. By using it as
-     * the operator of a (parallel) scan, we get the offset of the
-     * last non-zero value for every element in the input.
-     *
-     * The following implementation stores the offset in prevNonZero.
-     * The lengths can be computed from the step size of the parallel
-     * scan as the segments start with length 1 and the lengths double
-     * in each step. Only the segments at the beginning cannot grow
-     * bigger (i.e., the segment size is actually min(other+1,s)).
-     */
-    prevNonZero[selfT] = val == 0 ? -1 : 0;
-    barrier(CLK_LOCAL_MEM_FENCE);
-    for (int s=1; s<64; s*=2) {
-        /* 'selfT' refers to the right interval,
-         * 'other' to the left interval */
-        int other = selfT-s;
-        int myPrevNZ = prevNonZero[selfT];
-        if (selfT >= s) {
-            if (myPrevNZ == -1)
-                myPrevNZ = prevNonZero[other];   // (*1*) above
-            else
-                myPrevNZ += min(other+1,s);      // (*2*) above
-        }
-        prevNonZero2[selfT] = myPrevNZ;
-        barrier(CLK_LOCAL_MEM_FENCE);
-
-        local int *tmp = prevNonZero;
-        prevNonZero = prevNonZero2;
-        prevNonZero2 = tmp;
-    }
-
-    /*
-     * prevNonZero[i] now contains the index of the last non-zero
-     * before inputs[i] (including inputs[i] if inputs[i]!=0) or
-     * -1 if there is no preceding zero.
-     * In other words, if prevNonZero[i]==-1, then inputs[0],...,inputs[i]
-     * are all 0. If prevNonZero[i]>=0 then inputs[prevNonZero[i]]!=0 and
-     * inputs[prevNonZero[i]+1],...,inputs[i-1] are 0.
-     */
-
-    int myPNZ = prevNonZero[selfT];
-    int pnz63 = prevNonZero[63];
-    barrier(CLK_LOCAL_MEM_FENCE); /* we overwrite the scan buffers below */
-
-    /* Number of zeros between the last non-zero value and the
-     * current value (including the current value if it is 0).
-     */
-    int zeros = selfT - myPNZ;
-
-    int len = 0;  /* Number of nibbles this thread writes */
-
-    /* Nibble codes to output */
-    uint32_t c0=0, c1=0, c2=0;
-
-    local int *offsets  = prevNonZero;
-    local int *offsets2 = prevNonZero2;
-    if (val == 0) {
-        /* If the value is 0 and we are the last thread, we write the
-         * terminating 0.
-         * Otherwise, we output a code for zero if we are not part of
-         * the trailing zeros (because thread 63 writes '0' in this case),
-         * and we are the 7th zero after the last code (zero or non-zero)
-         * to be written or we are the last zero in the current sequence
-         * of zeros (i.e., input[selfT+1]!=0).
-         */
-        if (selfT == 63) { 
-            c0 = 0;
-            len = 1;
-        } else if (myPNZ < pnz63 && (zeros%7 == 0 || input[selfT+1] != 0)) {
-            c0 = zeros%7 == 0 ? 7 : zeros%7;
-            len = 1;
-        }
-    } else {
-        int16_t absval = abs(val);
-        c0 = first_nibble(val);
-        if (absval >= 19) {
-            uint8_t code = absval - 19;
-            c1 = code >> 4;
-            c2 = code & 0xF;
-            len = 3;
-        } else if (absval >= 3) {
-            c1 = absval-3;
-            len = 2;
-        } else
-            len = 1;
-    }
-    offsets[selfT] = len;
-    barrier(CLK_LOCAL_MEM_FENCE);
-
-    /* Sum up all 'len' values using parallel prefix sum.
-     * Then, offsets[selfT] holds the number of nibbles written by
-     * up to and including 'selfT'.
-     */
-    for (int s=1; s<64; s*=2) {
-        int other = selfT-s;
-        if (selfT >= s)
-            offsets2[selfT] = offsets[other] + offsets[selfT];
-        else
-            offsets2[selfT] = offsets[selfT];
-        barrier(CLK_LOCAL_MEM_FENCE);
-        local int *tmp = offsets; offsets = offsets2; offsets2 = tmp;
-    }
-    int pos = offsets[selfT] - len;  /* Our position for writing our nibbles */
-    int totalBytes = (offsets[63]+1)/2;
-    barrier(CLK_LOCAL_MEM_FENCE);
-
-    //   if (get_group_id(0) == 0 && get_group_id(1) == 0)
-//        printf("%d: len=%d, offsets=%d\n", selfT, len, offsets[selfT]);
-
-#ifdef COMPR_ATOM_OR
-    /* Clear output space */
-    for (int i=selfT; i<totalBytes; i+=np)
-        codes[i] = 0;
-    barrier(CLK_LOCAL_MEM_FENCE);
-
-    /* Construct one or two uint32_t values which can be
-     * logically or'ed (at the appropriate, aligned offset)
-     * to construct the output codes.
-     * This code relies on the device being little-endian.
-     */
-
-    int off   = pos/8;
-    int shift = (pos%8)*4;
-    uint32_t code0, code1=0;
-    if ((shift%8) == 4) {
-        code0 = (c0 | (c1<<12) | (c2<<8)) << (shift-4);
-        if (shift == 28)
-            code1 = (c1<<4) | c2;
-    } else {
-        code0 = ((c0<<4) | c1 | (c2<<12)) << shift;
-        if (shift == 24)
-            code1 = c2<<4;
-    }
-
-    if (len > 0) {
-        local uint32_t *codes32 = (local uint32_t *)codes;
-        atom_or(&codes32[off], code0);
-        if (code1 != 0)
-            atom_or(&codes32[off+1], code1);
-    }
-    barrier(CLK_LOCAL_MEM_FENCE);
-#else
-    /* Put the nibbles into an array and then copy them together
-     * to the final output.
-     */
-    local uint *nibbles = (local uint *)offsets;
-    if (len >= 1)
-        nibbles[pos] = c0;
-    if (len >= 2)
-        nibbles[pos+1] = c1;
-    if (len >= 3)
-        nibbles[pos+2] = c2;
-    if (selfT == 63 && pos%2 == 0)
-        nibbles[pos+1] = 0;
-    barrier(CLK_LOCAL_MEM_FENCE);
-
-    /*
-     * Pack the nibbles into bytes. The first nibble of each
-     * pair of nibbles goes into the upper half of the byte.
-     */
-    for (int i=selfT; i<totalBytes; i+=np)
-        codes[i] = (nibbles[2*i]<<4) | nibbles[2*i+1];
-    barrier(CLK_LOCAL_MEM_FENCE);
-#endif
-
-    /* Return the number of bytes used. */
-    return totalBytes;
-}
-
-
 inline int8_t clamp_pixel_value(int16_t val) {
     return val < -128 ? -128 : val > 127 ? 127 : val;
 // clamp() does not seem to be defined for int in OpenCL 1.0
@@ -411,6 +187,67 @@ void qdct_block(local const int16_t f[64], local int16_t ff[64],
     barrier(CLK_LOCAL_MEM_FENCE);
 }
 
+/*
+ * Compress the given input values (in 'input') storing
+ * the compressed data in 'codes'. 'n_values' values are read from
+ * 'input'. Returns the number of bytes used in 'codes' (i.e.,
+ * the length of the compressed data in bytes).
+ */
+int compress_data(const __local int16_t *input, uint8_t *codes) {
+    const int n_values = 64;
+    uint8_t nibbles[3*64];
+
+    /* Walk through the values. */
+    int zeros = 0, pos = 0;
+    for (int i=0; i<n_values; i++) {
+        int16_t val = input[i];
+        if (val == 0)
+            zeros++;
+        else {
+            /* When we meet a non-zero value, we output an appropriate
+             * number of codes for the zeros preceding the current
+             * non-zero value.
+             */
+            int16_t absval = val < 0 ? -val : val;
+            while (zeros > 0) {
+                int z = zeros > 7 ? 7 : zeros;
+                nibbles[pos++] = z;
+                zeros -= z;
+            }
+            nibbles[pos++] = first_nibble(val);
+            if (absval >= 19) {
+                uint8_t code = absval - 19;
+                nibbles[pos++] = code >> 4;
+                nibbles[pos++] = code & 0xF;
+            } else if (absval >= 3) {
+                nibbles[pos++] = absval - 3;
+            }
+        }
+    }
+
+    /* When the sequence ends with zeros, terminate the
+     * sequence with 0x0.
+     */
+    if (zeros > 0)
+        nibbles[pos++] = 0;
+    
+    /* Add a nibble 0x0 if the number of nibbles in the code
+     * is odd.
+     */
+    if ((pos & 1) != 0)
+        nibbles[pos++] = 0;
+    
+    /*
+     * Pack the nibbles into bytes. The first nibble of each
+     * pair of nibbles goes into the upper half of the byte.
+     */
+    for (int i=0; i<pos/2; i++)
+        codes[i] = (nibbles[2*i] << 4) | nibbles[2*i+1];
+
+    /* Return the number of bytes used. */
+    return pos/2;
+}
+
 
 void iqdct_block(local const int16_t ff[64], local int16_t f[64],
                  local float4 temp[32]) {
@@ -440,129 +277,47 @@ void iqdct_block(local const int16_t ff[64], local int16_t f[64],
 kernel void encode_video_frame(global uint8_t *image, global int8_t *old_image,
                                int motion_search,
                                int rows, int columns, int format,
-                               global uint *size,
-                               global uint *offsets_and_sizes,
                                global uint8_t *frame,
                                global ppp_motion *motions) {
-	local int16_t block[64];
-    local int16_t intra_qdct[64];
-    local uint8_t intra_compr[96];
-	pt block,center;
-	block.y = 8 * get_group_id(0);
-	block.x = 8 * get_group_id(1);
-	int pixel = (block.x + myX) * columns + blockY + myY;
+    const size_t blockX = get_group_id(0), blockY = get_group_id(1);
+    const size_t block_nr = get_group_id(0)+get_num_groups(0)*get_group_id(1);
+    local int16_t block[128];
+    local int16_t intra_qdct[128],reconstruct[64];
+	local float4 temp[64];  
+    int yy, xx;
 
-    /*
-     * Put macro block number 'b' into 'block' and
-     * compute its DCT and compressed representation.
-     * The length of the compressed block is stored in 'intra_len'.
-     */
-    if (self < 64)
+    yy = blockY * 8;
+    xx = blockX * 8;
+
+	motions[block_nr] = PPP_MOTION_INTRA;
+
+    if (self < 64) {
         block[self] = (int)image[(yy+myY)*columns+xx+myX] - 128;
+		block[self + 64] = block[self];
+	}
+	
+    barrier(CLK_LOCAL_MEM_FENCE);  
+	
+	int offset[4] = {0,0,1,1};
+	int offset32 = offset[get_local_id(2)]*32, offset64 = offset[get_local_id(2)]*64;
+    qdct_block(block + offset64, intra_qdct + offset64, temp + offset32);
+	
+	iqdct_block(block, reconstruct, temp);
+	old_image[(yy+myY)*columns+xx+myX] = reconstruct[self];
+	
+    if(self == 0) {
+		uint8_t codes_intra[97];
+		uint8_t codes_p[97];
+		codes_intra[96] = compress_data(intra_qdct, codes_intra);
+		codes_p[96] = compress_data(intra_qdct, codes_p);
 		
-    barrier(CLK_LOCAL_MEM_FENCE);
-
-    local float4 temp[32];    
-    local int comprTemp[192];
-
-    qdct_block(block, intra_qdct, temp);
-    len = compress_block_red(intra_qdct, intra_compr, comprTemp);
-
-    /* Determine location where to put our data in output
-     * (CPU will reorder blocks)
-     */
-    local size_t l_off;
-    if (self == 0)
-        l_off = atom_add(size, len);
-		
-    barrier(CLK_LOCAL_MEM_FENCE);
-    size_t off = l_off;
-
-    /* Write data to output */
-    event_t ev;
-    global int8_t *current = (global int8_t *)&image    [yy*columns + xx];
-    ev = async_work_group_copy(&frame[off], intra_compr, len, 0);
-        
-    /* Decode block and replace pixels in current frame */
-    iqdct_block(intra_qdct, block, temp);
-    int16_t newpixel = block[selfT];
-    current[myY*columns + myX] = clamp_pixel_value(newpixel);
-
-    /* Write offset and length so CPU knows where to find
-     * data for this block.
-     */
-    if (self == 0) {
-        offsets_and_sizes[2*block_nr]   = off;
-        offsets_and_sizes[2*block_nr+1] = len;
-    }
-    barrier(CLK_GLOBAL_MEM_FENCE);
-    wait_group_events(1, &ev);        
+		if ( codes_intra < codes_p) {
+			for (int i = 0; i < 97; i++)
+				frame[block_nr*97 + i] = codes_intra[i];
+		} else {
+			for (int i = 0; i < 97; i++)
+				frame[block_nr*97 + i] = codes_p[i];
+		}
+		//frame[(block_nr+1)*96 + block_nr] = compress_data(intra_qdct, &(frame[block_nr*97]));
+	}
 }
-
-// kernel void encode_video_frame(global uint8_t *image, global int8_t *old_image,
-                               // int motion_search,
-                               // int rows, int columns, int format,
-                               // global uint *size,
-                               // global uint *offsets_and_sizes,
-                               // global uint8_t *frame,
-                               // global ppp_motion *motions) {
-    // const size_t blockX = get_group_id(0), blockY = get_group_id(1);
-    // const size_t block_nr = get_group_id(0)+get_num_groups(0)*get_group_id(1);
-	// local int16_t block[64];
-    // local int16_t intra_qdct[64];
-    // local uint8_t intra_compr[96];
-    // int yy, xx;
-    // int len;
-
-    // motions[block_nr] = PPP_MOTION_INTRA;
-    // barrier(CLK_GLOBAL_MEM_FENCE);
-
-    // yy = blockY * 8;
-    // xx = blockX * 8;
-
-    // /*
-     // * Put macro block number 'b' into 'block' and
-     // * compute its DCT and compressed representation.
-     // * The length of the compressed block is stored in 'intra_len'.
-     // */
-    // if (self < 64)
-        // block[self] = (int)image[(yy+myY)*columns+xx+myX] - 128;
-		
-    // barrier(CLK_LOCAL_MEM_FENCE);
-
-    // local float4 temp[32];    
-    // local int comprTemp[192];
-
-    // qdct_block(block, intra_qdct, temp);
-    // len = compress_block_red(intra_qdct, intra_compr, comprTemp);
-
-    // /* Determine location where to put our data in output
-     // * (CPU will reorder blocks)
-     // */
-    // local size_t l_off;
-    // if (self == 0)
-        // l_off = atom_add(size, len);
-		
-    // barrier(CLK_LOCAL_MEM_FENCE);
-    // size_t off = l_off;
-
-    // /* Write data to output */
-    // event_t ev;
-    // global int8_t *current = (global int8_t *)&image    [yy*columns + xx];
-    // ev = async_work_group_copy(&frame[off], intra_compr, len, 0);
-        
-    // /* Decode block and replace pixels in current frame */
-    // iqdct_block(intra_qdct, block, temp);
-    // int16_t newpixel = block[selfT];
-    // current[myY*columns + myX] = clamp_pixel_value(newpixel);
-
-    // /* Write offset and length so CPU knows where to find
-     // * data for this block.
-     // */
-    // if (self == 0) {
-        // offsets_and_sizes[2*block_nr]   = off;
-        // offsets_and_sizes[2*block_nr+1] = len;
-    // }
-    // barrier(CLK_GLOBAL_MEM_FENCE);
-    // wait_group_events(1, &ev);        
-// }
