@@ -456,6 +456,7 @@ kernel void encode_video_frame(global uint8_t *image, global int8_t *old_image,
                                global ppp_motion *motions) {
     const size_t blockX = get_group_id(0), blockY = get_group_id(1);
     const size_t block_nr = get_group_id(0)+get_num_groups(0)*get_group_id(1);
+    const size_t dim_z = get_local_id(3);
 
     motions[block_nr] = PPP_MOTION_INTRA;
     barrier(CLK_GLOBAL_MEM_FENCE);
@@ -507,56 +508,87 @@ kernel void encode_video_frame(global uint8_t *image, global int8_t *old_image,
         private int dist = max_dist;
         private pt p;
         private int i;
+        local int errs[4];
         
         for (dist=max_dist; dist>=1; dist=dist/2) {
-            for(i = 0; i < 8; i++) {
-                p.y = center.y + diamond_offsets[i].y * dist;
-                p.x = center.x + diamond_offsets[i].x * dist;
+            for(i = 0; i < 2; i++) {
+            
+                p.y = center.y + vh_offsets[(i*4)+dim_z].y;
+                p.x = center.x + vh_offsets[(i*4)+dim_z].x;
 
                 /* Skip the current offset if it points beyond the borders */
-                if (p.y < 0 || p.x < 0 || p.y > rows-8 || p.x > columns-8)
-                    continue;
+                if (p.y < 0 || p.x < 0 || p.y > rows-8 || p.x > columns-8) {
+                } else {
+                    if(selfT == 0)
+                        errs[dim_z] = 0;
+                    barrier(CLK_LOCAL_MEM_FENCE);
+                    
+                    /*
+                     * Add atomly to the respective sum...
+                     */
+                    atom_add(errs+dim_z, abs(block[8*myY+myX] - old_image[(p.y+myY)*columns + p.x+myX]));
+                    barrier(CLK_LOCAL_MEM_FENCE);
 
-                local int s;
-                s = 0;
-                atom_add(&s, abs(block[8*myY+myX] - old_image[(p.y+myY)*columns + p.x+myX]));
-
-                if (self == 0 && s < min_err) {
-                    current.x = p.x;
-                    current.y = p.y;
-                    min_err = s;
+                    /*
+                     * If we are (0,0,0) select the best matching block...
+                     */
+                    if (self == 0) {
+                        for(int d = 0; d < 4; d++) {
+                            if(errs[d] < min_err) {
+                                current.x = center.x + vh_offsets[(i*4)+d].x;
+                                current.y = center.y + vh_offsets[(i*4)+d].y;
+                                min_err = errs[d];
+                                center = current;
+                            }
+                        }
+                    }
+                    barrier(CLK_LOCAL_MEM_FENCE);
                 }
-                barrier(CLK_LOCAL_MEM_FENCE);
             }
+        }
+
+        /*
+         * Last part of diamond search (parallelized with the third dimension).
+         * That means 4x64 subtractions are computed in paralell.
+         */
+        p.y = center.y + vh_offsets[dim_z].y;
+        p.x = center.x + vh_offsets[dim_z].x;
+
+        /* Skip the current offset if it points beyond the borders */
+        if (p.y < 0 || p.x < 0 || p.y > rows-8 || p.x > columns-8) {
+        } else {
+            if(selfT == 0)
+                errs[dim_z] = 0;
+            barrier(CLK_LOCAL_MEM_FENCE);
             
-            if(self == 0)
-                center = current;
+            /*
+             * Add atomly to the respective sum...
+             */
+            atom_add(errs+dim_z, abs(block[8*myY+myX] - old_image[(p.y+myY)*columns + p.x+myX]));
+            barrier(CLK_LOCAL_MEM_FENCE);
+
+            /*
+             * If we are (0,0,0) select the best matching block...
+             */
+            if (self == 0) {
+                for(int i = 0; i < 4; i++) {
+                    if(errs[i] < min_err) {
+                        current.x = center.x + vh_offsets[i].x;
+                        current.y = center.y + vh_offsets[i].y;
+                        min_err = errs[i];
+                        center = current;
+                    }
+                }
+            }
             barrier(CLK_LOCAL_MEM_FENCE);
         }
-
-        for(i = 0; i < 4; i++) {
-            p.y = center.y + vh_offsets[i].y;
-            p.x = center.x + vh_offsets[i].x;
-
-            /* Skip the current offset if it points beyond the borders */
-            if (p.y < 0 || p.x < 0 || p.y > rows-8 || p.x > columns-8)
-                continue;
-
-            local int s;
-            s = 0;
-            atom_add(&s, abs(block[8*myY+myX] - old_image[(p.y+myY)*columns + p.x+myX]));
-
-            if (self == 0 && s < min_err) {
-                current.x = p.x;
-                current.y = p.y;
-                min_err = s;
-             }
-             barrier(CLK_LOCAL_MEM_FENCE);
-        }
-        if(self == 0)
-            center = current;
-        barrier(CLK_LOCAL_MEM_FENCE);
         
+        
+        
+        
+        /*
+         * Compute deltas in respect to the best matching block...
+         */
         local int16_t deltas[64];
         deltas[8*myY+myX] = block[8*myY+myX] - old_image[(center.y+myY)*columns + p.x+myX];
         
