@@ -444,21 +444,13 @@ kernel void encode_video_frame(global uint8_t *image, global int8_t *old_image,
                                global uint *offsets_and_sizes,
                                global uint8_t *frame,
                                global ppp_motion *motions) {
-    const size_t blockX = get_group_id(0), blockY = get_group_id(1);
-    const size_t block_nr = get_group_id(0)+get_num_groups(0)*get_group_id(1);
-
-    motions[block_nr] = PPP_MOTION_INTRA;
-    barrier(CLK_GLOBAL_MEM_FENCE);
-
-    local int16_t block[64];
+	local int16_t block[64];
     local int16_t intra_qdct[64];
     local uint8_t intra_compr[96];
-
-    int yy, xx;
-    int len;
-
-    yy = blockY * 8;
-    xx = blockX * 8;
+	pt block,center;
+	block.y = 8 * get_group_id(0);
+	block.x = 8 * get_group_id(1);
+	int pixel = (block.x + myX) * columns + blockY + myY;
 
     /*
      * Put macro block number 'b' into 'block' and
@@ -467,6 +459,7 @@ kernel void encode_video_frame(global uint8_t *image, global int8_t *old_image,
      */
     if (self < 64)
         block[self] = (int)image[(yy+myY)*columns+xx+myX] - 128;
+		
     barrier(CLK_LOCAL_MEM_FENCE);
 
     local float4 temp[32];    
@@ -481,6 +474,7 @@ kernel void encode_video_frame(global uint8_t *image, global int8_t *old_image,
     local size_t l_off;
     if (self == 0)
         l_off = atom_add(size, len);
+		
     barrier(CLK_LOCAL_MEM_FENCE);
     size_t off = l_off;
 
@@ -504,3 +498,71 @@ kernel void encode_video_frame(global uint8_t *image, global int8_t *old_image,
     barrier(CLK_GLOBAL_MEM_FENCE);
     wait_group_events(1, &ev);        
 }
+
+// kernel void encode_video_frame(global uint8_t *image, global int8_t *old_image,
+                               // int motion_search,
+                               // int rows, int columns, int format,
+                               // global uint *size,
+                               // global uint *offsets_and_sizes,
+                               // global uint8_t *frame,
+                               // global ppp_motion *motions) {
+    // const size_t blockX = get_group_id(0), blockY = get_group_id(1);
+    // const size_t block_nr = get_group_id(0)+get_num_groups(0)*get_group_id(1);
+	// local int16_t block[64];
+    // local int16_t intra_qdct[64];
+    // local uint8_t intra_compr[96];
+    // int yy, xx;
+    // int len;
+
+    // motions[block_nr] = PPP_MOTION_INTRA;
+    // barrier(CLK_GLOBAL_MEM_FENCE);
+
+    // yy = blockY * 8;
+    // xx = blockX * 8;
+
+    // /*
+     // * Put macro block number 'b' into 'block' and
+     // * compute its DCT and compressed representation.
+     // * The length of the compressed block is stored in 'intra_len'.
+     // */
+    // if (self < 64)
+        // block[self] = (int)image[(yy+myY)*columns+xx+myX] - 128;
+		
+    // barrier(CLK_LOCAL_MEM_FENCE);
+
+    // local float4 temp[32];    
+    // local int comprTemp[192];
+
+    // qdct_block(block, intra_qdct, temp);
+    // len = compress_block_red(intra_qdct, intra_compr, comprTemp);
+
+    // /* Determine location where to put our data in output
+     // * (CPU will reorder blocks)
+     // */
+    // local size_t l_off;
+    // if (self == 0)
+        // l_off = atom_add(size, len);
+		
+    // barrier(CLK_LOCAL_MEM_FENCE);
+    // size_t off = l_off;
+
+    // /* Write data to output */
+    // event_t ev;
+    // global int8_t *current = (global int8_t *)&image    [yy*columns + xx];
+    // ev = async_work_group_copy(&frame[off], intra_compr, len, 0);
+        
+    // /* Decode block and replace pixels in current frame */
+    // iqdct_block(intra_qdct, block, temp);
+    // int16_t newpixel = block[selfT];
+    // current[myY*columns + myX] = clamp_pixel_value(newpixel);
+
+    // /* Write offset and length so CPU knows where to find
+     // * data for this block.
+     // */
+    // if (self == 0) {
+        // offsets_and_sizes[2*block_nr]   = off;
+        // offsets_and_sizes[2*block_nr+1] = len;
+    // }
+    // barrier(CLK_GLOBAL_MEM_FENCE);
+    // wait_group_events(1, &ev);        
+// }
