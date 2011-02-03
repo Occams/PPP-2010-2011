@@ -475,9 +475,7 @@ kernel void encode_video_frame(global uint8_t *image, global int8_t *old_image,
     xx = blockX * 8;
 
     /*
-     * Put macro block number 'b' into 'block' and
-     * compute its DCT and compressed representation.
-     * The length of the compressed block is stored in 'intra_len'.
+     * DCT of current macroblock.
      */
     if (self < 64)
         block[self] = (int)image[(yy+myY)*columns+xx+myX] - 128;
@@ -485,22 +483,21 @@ kernel void encode_video_frame(global uint8_t *image, global int8_t *old_image,
 
     local float4 temp[32];    
     local int comprTemp[192];
-
     qdct_block(block, intra_qdct, temp);
     len = compress_block_red(intra_qdct, intra_compr, comprTemp);
 
-    
     /*
      * Motion estimation
      */
     local uint8_t max_dist;
-    local pt center,current;
+    local pt center; //Holds always the current best found mathing block
+    local pt current; //Tmp point...
     switch (motion_search) {
         case MS_DIAMOND: max_dist = 32; break;
         default: max_dist = 0;
     }
     
-   if (motion_search != MS_NONE) {
+    if (motion_search != MS_NONE) {
         center.y = current.y = yy;
         center.x = current.x = xx;
         
@@ -509,41 +506,41 @@ kernel void encode_video_frame(global uint8_t *image, global int8_t *old_image,
         private pt p;
         private int i;
         local int errs[4];
+        local int8_t old_local_image[4][64];
         
         for (dist=max_dist; dist>=1; dist=dist/2) {
             for(i = 0; i < 2; i++) {
-            
                 p.y = center.y + vh_offsets[(i*4)+dim_z].y;
                 p.x = center.x + vh_offsets[(i*4)+dim_z].x;
+                if(selfT == 0)
+                    errs[dim_z] = -1;
+                barrier(CLK_LOCAL_MEM_FENCE);
 
                 /* Skip the current offset if it points beyond the borders */
                 if (p.y < 0 || p.x < 0 || p.y > rows-8 || p.x > columns-8) {
                 } else {
-                    if(selfT == 0)
-                        errs[dim_z] = 0;
-                    barrier(CLK_LOCAL_MEM_FENCE);
-                    
                     /*
                      * Add atomly to the respective sum...
                      */
                     atom_add(errs+dim_z, abs(block[8*myY+myX] - old_image[(p.y+myY)*columns + p.x+myX]));
-                    barrier(CLK_LOCAL_MEM_FENCE);
-
-                    /*
-                     * If we are (0,0,0) select the best matching block...
-                     */
-                    if (self == 0) {
-                        for(int d = 0; d < 4; d++) {
-                            if(errs[d] < min_err) {
-                                current.x = center.x + vh_offsets[(i*4)+d].x;
-                                current.y = center.y + vh_offsets[(i*4)+d].y;
-                                min_err = errs[d];
-                                center = current;
-                            }
+                }
+                barrier(CLK_LOCAL_MEM_FENCE);
+                
+                
+                /*
+                 * If we are (0,0,0) select the best matching block...
+                 */
+                if (selfT == 0) {
+                    for(int d = 0; d < 4; d++) {
+                        if(errs[d] >= 0 && errs[d] < min_err) {
+                            current.x = center.x + vh_offsets[(i*4)+d].x;
+                            current.y = center.y + vh_offsets[(i*4)+d].y;
+                            min_err = errs[d];
+                            center = current;
                         }
                     }
-                    barrier(CLK_LOCAL_MEM_FENCE);
                 }
+                barrier(CLK_LOCAL_MEM_FENCE);
             }
         }
 
@@ -553,39 +550,30 @@ kernel void encode_video_frame(global uint8_t *image, global int8_t *old_image,
          */
         p.y = center.y + vh_offsets[dim_z].y;
         p.x = center.x + vh_offsets[dim_z].x;
+        
+        if(selfT == 0)
+            errs[dim_z] = -1;
+        barrier(CLK_LOCAL_MEM_FENCE);
 
         /* Skip the current offset if it points beyond the borders */
         if (p.y < 0 || p.x < 0 || p.y > rows-8 || p.x > columns-8) {
         } else {
-            if(selfT == 0)
-                errs[dim_z] = 0;
-            barrier(CLK_LOCAL_MEM_FENCE);
-            
-            /*
-             * Add atomly to the respective sum...
-             */
             atom_add(errs+dim_z, abs(block[8*myY+myX] - old_image[(p.y+myY)*columns + p.x+myX]));
-            barrier(CLK_LOCAL_MEM_FENCE);
+        }
+        barrier(CLK_LOCAL_MEM_FENCE);
 
-            /*
-             * If we are (0,0,0) select the best matching block...
-             */
-            if (self == 0) {
-                for(int i = 0; i < 4; i++) {
-                    if(errs[i] < min_err) {
-                        current.x = center.x + vh_offsets[i].x;
-                        current.y = center.y + vh_offsets[i].y;
-                        min_err = errs[i];
-                        center = current;
-                    }
+        if (self == 0) {
+            for(int i = 0; i < 4; i++) {
+                if(errs[i] < min_err) {
+                    current.x = center.x + vh_offsets[i].x;
+                    current.y = center.y + vh_offsets[i].y;
+                    min_err = errs[i];
+                    center = current;
                 }
             }
-            barrier(CLK_LOCAL_MEM_FENCE);
         }
-        
-        
-        
-        
+        barrier(CLK_LOCAL_MEM_FENCE);
+    
         /*
          * Compute deltas in respect to the best matching block...
          */
@@ -599,6 +587,10 @@ kernel void encode_video_frame(global uint8_t *image, global int8_t *old_image,
         
     barrier(CLK_LOCAL_MEM_FENCE);
     
+    
+    /*
+     * Now we know everything determine if intra or p-coding should be done...
+     */
     
     if (len <= delta_len) {
         /* Determine location where to put our data in output
@@ -662,13 +654,6 @@ kernel void encode_video_frame(global uint8_t *image, global int8_t *old_image,
         
         barrier(CLK_GLOBAL_MEM_FENCE);
         wait_group_events(1, &ev);
-
-        /* Set motion information for current block (i.e., mark
-         * the block as predicted instead of intra-coded.
-         * The motion vector is given in relative coordinates
-         * (as offset relative to the current block).
-         */
-        
     }
 
 }
