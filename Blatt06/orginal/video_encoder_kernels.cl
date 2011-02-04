@@ -371,9 +371,6 @@ kernel void encode_video_frame(global uint8_t *image, global int8_t *old_image,
                 for(int i = 0; i < 2; i++) {
                     p.y = center.y + diamond_offsets[(i*4)+get_local_id(2)].y*dist;
                     p.x = center.x + diamond_offsets[(i*4)+get_local_id(2)].x*dist;
-                    if(selfT == 0)
-                        errs[(i*4)+get_local_id(2)] = -1;
-                    barrier(CLK_LOCAL_MEM_FENCE);
 
                     /* Skip the current offset if it points beyond the borders */
                     if(p.y >= 0 && p.x >= 0 && p.y < rows-8 && p.x < columns-8) {
@@ -390,9 +387,11 @@ kernel void encode_video_frame(global uint8_t *image, global int8_t *old_image,
                  */
                 if (self == 0) {
                     for(int d = 0; d < 8; d++) {
-                        if(errs[d] >= 0 && errs[d] < min_err) {
-                            current.x = center.x + diamond_offsets[d].x;
-                            current.y = center.y + diamond_offsets[d].y;
+                        p.y = center.y + diamond_offsets[d].y*dist;
+                        p.x = center.x + diamond_offsets[d].x*dist;
+                    
+                        if(p.y >= 0 && p.x >= 0 && p.y < rows-8 && p.x < columns-8 && errs[d] < min_err) {
+                            current = p;
                             min_err = errs[d];
                         }
                     }
@@ -407,10 +406,6 @@ kernel void encode_video_frame(global uint8_t *image, global int8_t *old_image,
             p.y = center.y + vh_offsets[get_local_id(2)].y;
             p.x = center.x + vh_offsets[get_local_id(2)].x;
             
-            if(selfT == 0)
-                errs[get_local_id(2)] = -1;
-            barrier(CLK_LOCAL_MEM_FENCE);
-
             /* Skip the current offset if it points beyond the borders */
             if(p.y >= 0 && p.x >= 0 && p.y < rows-8 && p.x < columns-8) {
                 sums[get_local_id(2)][selfT] = abs(block[8*myY+myX] - old_image[(p.y+myY)*columns + p.x+myX]);
@@ -422,9 +417,11 @@ kernel void encode_video_frame(global uint8_t *image, global int8_t *old_image,
 
             if (self == 0 && p.y >= 0 && p.x >= 0 && p.y < rows-8 && p.x < columns-8) {
                 for(int d = 0; d < 4; d++) {
-                    if(errs[d] >= 0 && errs[d] < min_err) {
-                        current.x = center.x + vh_offsets[d].x;
-                        current.y = center.y + vh_offsets[d].y;
+                    p.y = center.y + vh_offsets[d].y;
+                    p.x = center.x + vh_offsets[d].x;
+                
+                    if(p.y >= 0 && p.x >= 0 && p.y < rows-8 && p.x < columns-8 && errs[d] < min_err) {
+                        current = p;
                         min_err = errs[d];
                     }
                 }
