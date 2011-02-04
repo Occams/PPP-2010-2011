@@ -172,17 +172,16 @@ void qdct_block(local const int16_t f[64], local int16_t ff[64],
     local    float  *B  = (local float *)B4;
     local    float4 *BAtr_tr4 = temp + 16;
     local    float  *BAtr_tr  = (local float *)BAtr_tr4;
-
-    B[selfT] = f[selfT];
+	
+		B[selfT] = f[selfT];
     barrier(CLK_LOCAL_MEM_FENCE);
 
     /* Compute B*A^tr */
-    BAtr_tr[8*c+r] = dot(B4[2*r], A4[2*c]) + dot(B4[2*r+1], A4[2*c+1]);
+		BAtr_tr[8*c+r] = dot(B4[2*r], A4[2*c]) + dot(B4[2*r+1], A4[2*c+1]);
     barrier(CLK_LOCAL_MEM_FENCE);
 
     /* Compute A * (B*A^tr) */
     float Cval = dot(A4[2*r], BAtr_tr4[2*c]) + dot(A4[2*r+1], BAtr_tr4[2*c+1]);
-
     ff[permut[selfT]] = round(Cval / quantization_factors[selfT]);
     barrier(CLK_LOCAL_MEM_FENCE);
 }
@@ -260,17 +259,17 @@ void iqdct_block(local const int16_t ff[64], local int16_t f[64],
     local    float4 *BA_tr4 = temp + 16;
     local    float  *BA_tr  = (local float *)BA_tr4;
 
-    B[selfT] = ff[permut[selfT]] * quantization_factors[selfT];
+		B[selfT] = ff[permut[selfT]] * quantization_factors[selfT];
     barrier(CLK_LOCAL_MEM_FENCE);
 
     /* Compute B*A */
-    BA_tr[8*c+r] = dot(B4[2*r], Atr4[2*c]) + dot(B4[2*r+1], Atr4[2*c+1]);
+		BA_tr[8*c+r] = dot(B4[2*r], Atr4[2*c]) + dot(B4[2*r+1], Atr4[2*c+1]);
     barrier(CLK_LOCAL_MEM_FENCE);
 
     /* Compute A^tr * (B*A) */
-    float Cval = dot(Atr4[2*r], BA_tr4[2*c]) + dot(Atr4[2*r+1], BA_tr4[2*c+1]);
-
-    f[selfT] = round(Cval);
+		float Cval = dot(Atr4[2*r], BA_tr4[2*c]) + dot(Atr4[2*r+1], BA_tr4[2*c+1]);
+		f[selfT] = round(Cval);
+	
     barrier(CLK_LOCAL_MEM_FENCE);
 }
 
@@ -298,18 +297,18 @@ kernel void encode_video_frame(global uint8_t *image, global int8_t *old_image,
 	
     barrier(CLK_LOCAL_MEM_FENCE);  
 	
-	int offset[4] = {0,0,1,1};
+	int offset[8] = {0,0,0,0,1,1,1,1};
 	int offset32 = offset[get_local_id(2)]*32, offset64 = offset[get_local_id(2)]*64;
     qdct_block(block + offset64, intra_qdct + offset64, temp + offset32);
 	
-	iqdct_block(block, reconstruct, temp);
-	old_image[(yy+myY)*columns+xx+myX] = reconstruct[self];
+	//iqdct_block(block, reconstruct, temp);
+	//image[(yy+myY)*columns+xx+myX] = reconstruct[self];
 	
     if(self == 0) {
 		uint8_t codes_intra[97];
 		uint8_t codes_p[97];
 		codes_intra[96] = compress_data(intra_qdct, codes_intra);
-		codes_p[96] = compress_data(intra_qdct, codes_p);
+		codes_p[96] = compress_data(intra_qdct + 64, codes_p);
 		
 		if ( codes_intra < codes_p) {
 			for (int i = 0; i < 97; i++)
