@@ -163,7 +163,7 @@ constant pt vh_offsets[4] = { { -1,  0 }, {  0, -1 },
 
 
 void qdct_block(local const int16_t f[64], local int16_t ff[64],
-                local float4 temp[32]) {
+                local float4 temp[32], bool cond) {
     const uint r = get_local_id(1);
     const uint c = get_local_id(0);
 
@@ -173,16 +173,20 @@ void qdct_block(local const int16_t f[64], local int16_t ff[64],
     local    float4 *BAtr_tr4 = temp + 16;
     local    float  *BAtr_tr  = (local float *)BAtr_tr4;
 	
+	if (cond)
 		B[selfT] = f[selfT];
     barrier(CLK_LOCAL_MEM_FENCE);
 
     /* Compute B*A^tr */
+	if (cond)
 		BAtr_tr[8*c+r] = dot(B4[2*r], A4[2*c]) + dot(B4[2*r+1], A4[2*c+1]);
     barrier(CLK_LOCAL_MEM_FENCE);
 
     /* Compute A * (B*A^tr) */
+	if (cond) {
     float Cval = dot(A4[2*r], BAtr_tr4[2*c]) + dot(A4[2*r+1], BAtr_tr4[2*c+1]);
     ff[permut[selfT]] = round(Cval / quantization_factors[selfT]);
+	}
     barrier(CLK_LOCAL_MEM_FENCE);
 }
 
@@ -192,7 +196,7 @@ void qdct_block(local const int16_t f[64], local int16_t ff[64],
  * 'input'. Returns the number of bytes used in 'codes' (i.e.,
  * the length of the compressed data in bytes).
  */
-int compress_data(const __local int16_t *input, uint8_t *codes) {
+int compress_data(const __local int16_t *input, local uint8_t *codes) {
     const int n_values = 64;
     uint8_t nibbles[3*64];
 
@@ -249,7 +253,7 @@ int compress_data(const __local int16_t *input, uint8_t *codes) {
 
 
 void iqdct_block(local const int16_t ff[64], local int16_t f[64],
-                 local float4 temp[32]) {
+                 local float4 temp[32], bool cond) {
     const uint r = get_local_id(1);
     const uint c = get_local_id(0);
 
@@ -258,17 +262,21 @@ void iqdct_block(local const int16_t ff[64], local int16_t f[64],
     local    float  *B      = (local float *)B4;
     local    float4 *BA_tr4 = temp + 16;
     local    float  *BA_tr  = (local float *)BA_tr4;
-
+	
+	if (cond)
 		B[selfT] = ff[permut[selfT]] * quantization_factors[selfT];
     barrier(CLK_LOCAL_MEM_FENCE);
 
     /* Compute B*A */
+	if (cond)
 		BA_tr[8*c+r] = dot(B4[2*r], Atr4[2*c]) + dot(B4[2*r+1], Atr4[2*c+1]);
     barrier(CLK_LOCAL_MEM_FENCE);
 
     /* Compute A^tr * (B*A) */
+	if (cond){
 		float Cval = dot(Atr4[2*r], BA_tr4[2*c]) + dot(Atr4[2*r+1], BA_tr4[2*c+1]);
 		f[selfT] = round(Cval);
+	}
 	
     barrier(CLK_LOCAL_MEM_FENCE);
 }
@@ -292,34 +300,39 @@ kernel void encode_video_frame(global uint8_t *image, global int8_t *old_image,
 		block[selfT + 64] = block[selfT];
 	}
 	
+	
     barrier(CLK_LOCAL_MEM_FENCE);  
 	
-	int offset[8] = {0,0,0,0,1,1,1,1};
+	/* Parallel DCT */
+	int offset[4] = {0,1,0,1};
 	int offset32 = offset[get_local_id(2)]*32, offset64 = offset[get_local_id(2)]*64;
-    qdct_block(block + offset64, intra_qdct + offset64, temp + offset32);
-	qdct_block(block + offset64, intra_qdct + offset64, temp + offset32);
-	qdct_block(block + offset64, intra_qdct + offset64, temp + offset32);
-	qdct_block(block + offset64, intra_qdct + offset64, temp + offset32);
-	qdct_block(block + offset64, intra_qdct + offset64, temp + offset32);
-	qdct_block(block + offset64, intra_qdct + offset64, temp + offset32);
-	qdct_block(block + offset64, intra_qdct + offset64, temp + offset32);
+    qdct_block(block + offset64, intra_qdct + offset64, temp + offset32, get_local_id(2) == 0 || get_local_id(2) == 1);
+	
+	
+	/* Do both compressions in parallel */
+	local uint8_t codes_intra[97];
+	local uint8_t codes_p[97];
+	
+    if(self == 0)
+		codes_intra[96] = compress_data(intra_qdct, codes_intra);
+	if(self == 65)
+		codes_p[96] = compress_data(intra_qdct + 64, codes_p);
+	
+	barrier(CLK_LOCAL_MEM_FENCE);  
+	
+	/* Store compression result in frame array (coalesced global memory access)*/
+	if(self < 97) {	  
+		if (codes_intra[96] > codes_p[96]) {
+				frame[block_nr*97 + self] = codes_intra[self];
+		} else {
+				frame[block_nr*97 + self] = codes_p[self];
+		}
+	}
+
+	/* Reconstruction */
+	iqdct_block(intra_qdct, reconstruct, temp, get_local_id(2) == 0 || get_local_id(2) == 1);
 	
 	if (self < 64)
-		//image[pixel] = reconstruct[selfT];
+		image[pixel] = (uint8_t) reconstruct[selfT];
 	
-    if(self == 0) {
-		uint8_t codes_intra[97];
-		uint8_t codes_p[97];
-		codes_intra[96] = compress_data(intra_qdct, codes_intra);
-		codes_p[96] = compress_data(intra_qdct + 64, codes_p);
-		
-		if ( codes_intra < codes_p) {
-			for (int i = 0; i < 97; i++)
-				frame[block_nr*97 + i] = codes_intra[i];
-		} else {
-			for (int i = 0; i < 97; i++)
-				frame[block_nr*97 + i] = codes_p[i];
-		}
-		//frame[(block_nr+1)*96 + block_nr] = compress_data(intra_qdct, &(frame[block_nr*97]));
-	}
 }
