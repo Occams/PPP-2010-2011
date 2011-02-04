@@ -537,8 +537,8 @@ const options *opts, bool use_gpu) {
 	/* Set the work group size and global number of work items.
 	*/
 	size_t work_dims = 3;
-	size_t global_work_size[] = {columns, rows, 4};
-	size_t local_work_size[] = {8, 8, 4};
+	size_t global_work_size[] = {columns, rows, 8};
+	size_t local_work_size[] = {8, 8, 8};
 
 	context = create_cl_context(use_gpu, &devid);
 	

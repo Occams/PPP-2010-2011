@@ -304,7 +304,7 @@ kernel void encode_video_frame(global uint8_t *image, global int8_t *old_image,
     barrier(CLK_LOCAL_MEM_FENCE);  
 	
 	/* Parallel DCT */
-	int offset[4] = {0,1,0,1};
+	int offset[8] = {0,1,0,1,0,1,0,1};
 	int offset32 = offset[get_local_id(2)]*32, offset64 = offset[get_local_id(2)]*64;
     qdct_block(block + offset64, intra_qdct + offset64, temp + offset32, get_local_id(2) == 0 || get_local_id(2) == 1);
 	
@@ -322,7 +322,7 @@ kernel void encode_video_frame(global uint8_t *image, global int8_t *old_image,
 	
 	/* Store compression result in frame array (coalesced global memory access)*/
 	if(self < 97) {	  
-		if (codes_intra[96] > codes_p[96]) {
+		if (codes_intra[96] < codes_p[96]) {
 				frame[block_nr*97 + self] = codes_intra[self];
 		} else {
 				frame[block_nr*97 + self] = codes_p[self];
