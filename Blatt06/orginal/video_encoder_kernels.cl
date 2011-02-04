@@ -358,12 +358,14 @@ kernel void encode_video_frame(global uint8_t *image, global int8_t *old_image,
             /*
              * Initi min_err
              */
+            /*
             if(get_local_id(2) == 0)
 	    		 sums[0][selfT] = abs(block[8*myY+myX] - old_image[(center.y+myY)*columns + center.x+myX]);
             barrier(CLK_LOCAL_MEM_FENCE);
             if(self == 0)
                 min_err = sum_up(sums[0]);
             barrier(CLK_LOCAL_MEM_FENCE);
+            */
             
 
             for (dist=max_dist; dist>=1; dist=dist/2) {
