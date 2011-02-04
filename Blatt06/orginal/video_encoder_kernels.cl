@@ -283,16 +283,13 @@ kernel void encode_video_frame(global uint8_t *image, global int8_t *old_image,
     local int16_t block[128];
     local int16_t intra_qdct[128],reconstruct[64];
 	local float4 temp[64];  
-    int yy, xx;
-
-    yy = blockY * 8;
-    xx = blockX * 8;
+    int yy = blockY * 8, xx = blockX * 8, pixel = (yy+myY)*columns+xx+myX;
 
 	motions[block_nr] = PPP_MOTION_INTRA;
 
     if (self < 64) {
-        block[self] = (int)image[(yy+myY)*columns+xx+myX] - 128;
-		block[self + 64] = block[self];
+        block[selfT] = (int)image[pixel] - 128;
+		block[selfT + 64] = block[selfT];
 	}
 	
     barrier(CLK_LOCAL_MEM_FENCE);  
@@ -300,9 +297,15 @@ kernel void encode_video_frame(global uint8_t *image, global int8_t *old_image,
 	int offset[8] = {0,0,0,0,1,1,1,1};
 	int offset32 = offset[get_local_id(2)]*32, offset64 = offset[get_local_id(2)]*64;
     qdct_block(block + offset64, intra_qdct + offset64, temp + offset32);
+	qdct_block(block + offset64, intra_qdct + offset64, temp + offset32);
+	qdct_block(block + offset64, intra_qdct + offset64, temp + offset32);
+	qdct_block(block + offset64, intra_qdct + offset64, temp + offset32);
+	qdct_block(block + offset64, intra_qdct + offset64, temp + offset32);
+	qdct_block(block + offset64, intra_qdct + offset64, temp + offset32);
+	qdct_block(block + offset64, intra_qdct + offset64, temp + offset32);
 	
-	//iqdct_block(block, reconstruct, temp);
-	//image[(yy+myY)*columns+xx+myX] = reconstruct[self];
+	if (self < 64)
+		//image[pixel] = reconstruct[selfT];
 	
     if(self == 0) {
 		uint8_t codes_intra[97];
