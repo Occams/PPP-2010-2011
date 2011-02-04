@@ -281,6 +281,23 @@ void iqdct_block(local const int16_t ff[64], local int16_t f[64],
     barrier(CLK_LOCAL_MEM_FENCE);
 }
 
+inline int sum_up(local int data[64]) {
+    int sum,i;
+    for(sum = 0,i=0; i < 64; i++)
+        sum += data[i];
+    return sum;
+}
+
+inline ppp_motion motion_code(int deltaY, int deltaX) {
+    if (abs(deltaY) <= 127 && abs(deltaX) <= 127) {
+        ppp_motion bm;
+        bm.motionY = deltaY;
+        bm.motionX = deltaX;
+        return bm;
+    }
+    return PPP_MOTION_INTRA;
+}
+
 kernel void encode_video_frame(global uint8_t *image, global int8_t *old_image,
                                int motion_search,
                                int rows, int columns, int format,
@@ -297,42 +314,178 @@ kernel void encode_video_frame(global uint8_t *image, global int8_t *old_image,
 
     if (self < 64) {
         block[selfT] = (int)image[pixel] - 128;
-		block[selfT + 64] = block[selfT];
 	}
-	
-	
     barrier(CLK_LOCAL_MEM_FENCE);  
+    
+    /*
+     * NOW: MOTION ESTIMATION
+     */
+    local uint8_t max_dist;
+    local pt center; //Holds after motion estimation 
+    local pt current; //Tmp point...
+    
+    /*
+     * Distance for motion estimation
+     */
+    switch (motion_search) {
+        case MS_DIAMOND: max_dist = 32; break;
+        default: max_dist = 0;
+    }
+    
+    /*
+     * Do motion search if it is requested...
+     */
+    if (motion_search != MS_NONE) {
+        center.y = current.y = yy;
+        center.x = current.x = xx;
+        
+        /*
+         * MS_DIAMOND
+         */
+        if(max_dist > 0) {
+    
+            //Holds current minimal error..
+            local int min_err;
+            
+            //The distance over which we iterate...
+            private int dist = max_dist;
+            
+            //Some other helper variables
+            private pt p;
+            local int errs[8];
+            local int sums[8][64];
+            
+            /*
+             * Initi min_err
+             */
+            if(get_local_id(2) == 0)
+	    		 sums[0][selfT] = abs(block[8*myY+myX] - old_image[(center.y+myY)*columns + center.x+myX]);
+            barrier(CLK_LOCAL_MEM_FENCE);
+            if(self == 0)
+                min_err = sum_up(sums[0]);
+            barrier(CLK_LOCAL_MEM_FENCE);
+            
+
+            for (dist=max_dist; dist>=1; dist=dist/2) {
+                for(int i = 0; i < 2; i++) {
+                    p.y = center.y + diamond_offsets[(i*4)+get_local_id(2)].y;
+                    p.x = center.x + diamond_offsets[(i*4)+get_local_id(2)].x;
+                    if(selfT == 0)
+                        errs[(i*4)+get_local_id(2)] = -1;
+                    barrier(CLK_LOCAL_MEM_FENCE);
+
+                    /* Skip the current offset if it points beyond the borders */
+                    if (p.y < 0 || p.x < 0 || p.y > rows-8 || p.x > columns-8) {
+                    } else {
+                        sums[(i*4)+get_local_id(2)][selfT] = abs(block[8*myY+myX] - old_image[(p.y+myY)*columns + p.x+myX]);
+                    }
+                    barrier(CLK_LOCAL_MEM_FENCE);
+                    if(selfT == 0)
+                        errs[(i*4)+get_local_id(2)] = sum_up(sums[(i*4)+get_local_id(2)]);
+                    barrier(CLK_LOCAL_MEM_FENCE);
+                }
+                
+                /*
+                 * If we are (0,0,0) select the best matching block...
+                 */
+                if (self == 0) {
+                    for(int d = 0; d < 8; d++) {
+                        if(errs[d] >= 0 && errs[d] < min_err) {
+                            current.x = center.x + vh_offsets[d].x;
+                            current.y = center.y + vh_offsets[d].y;
+                            min_err = errs[d];
+                            center = current;
+                        }
+                    }
+                }
+                barrier(CLK_LOCAL_MEM_FENCE);
+            }
+                
+            /*
+             * The last step of diamond search (4 blocks)
+             */
+            p.y = center.y + vh_offsets[get_local_id(2)].y;
+            p.x = center.x + vh_offsets[get_local_id(2)].x;
+            
+            if(selfT == 0)
+                errs[get_local_id(2)] = -1;
+            barrier(CLK_LOCAL_MEM_FENCE);
+
+            /* Skip the current offset if it points beyond the borders */
+            if (p.y < 0 || p.x < 0 || p.y > rows-8 || p.x > columns-8 || get_local_id(2) > 3) {
+            } else {
+                sums[get_local_id(2)][selfT] = abs(block[8*myY+myX] - old_image[(p.y+myY)*columns + p.x+myX]);
+            }
+            barrier(CLK_LOCAL_MEM_FENCE);
+            if(selfT == 0)
+                errs[get_local_id(2)] = sum_up(sums[get_local_id(2)]);
+            barrier(CLK_LOCAL_MEM_FENCE);
+
+            if (self == 0) {
+                for(int d = 0; d < 4; d++) {
+                    if(errs[d] >= 0 && errs[d] < min_err) {
+                        current.x = center.x + vh_offsets[d].x;
+                        current.y = center.y + vh_offsets[d].y;
+                        min_err = errs[d];
+                        center = current;
+                    }
+                }
+            }
+            barrier(CLK_LOCAL_MEM_FENCE);
+        }
+        block[64+8*myY+myX] = block[8*myY+myX] - old_image[(center.y+myY)*columns + center.x+myX];
+    }
 	
 	/* Parallel DCT */
-	int offset[8] = {0,1,0,1,0,1,0,1};
+	int offset[4] = {0,1,0,1};
 	int offset32 = offset[get_local_id(2)]*32, offset64 = offset[get_local_id(2)]*64;
     qdct_block(block + offset64, intra_qdct + offset64, temp + offset32, get_local_id(2) == 0 || get_local_id(2) == 1);
 	
 	
 	/* Do both compressions in parallel */
 	local uint8_t codes_intra[97];
-	local uint8_t codes_p[97];
+	local uint8_t codes_delta[97];
 	
     if(self == 0)
 		codes_intra[96] = compress_data(intra_qdct, codes_intra);
-	if(self == 65)
-		codes_p[96] = compress_data(intra_qdct + 64, codes_p);
+	if(self == 65) {
+	    if(motion_search == MS_NONE) {
+	        codes_delta[96] = 255;
+	    } else {
+    	    codes_delta[96] = compress_data(intra_qdct + 64, codes_delta);
+    	}
+	}
 	
 	barrier(CLK_LOCAL_MEM_FENCE);  
 	
 	/* Store compression result in frame array (coalesced global memory access)*/
+	local int offs;
 	if(self < 97) {	  
-		if (codes_intra[96] < codes_p[96]) {
-				frame[block_nr*97 + self] = codes_intra[self];
+		if (codes_intra[96] <= codes_delta[96]) {
+	        if(self == 0) offs = 0;
+			frame[block_nr*97 + self] = codes_intra[self];
 		} else {
-				frame[block_nr*97 + self] = codes_p[self];
+	        if(self == 0) offs = 64;
+			frame[block_nr*97 + self] = codes_delta[self];
+			if(self < 64)
+				motions[block_nr] = motion_code(center.y-yy, center.x-xx);
 		}
 	}
-
-	/* Reconstruction */
-	iqdct_block(intra_qdct, reconstruct, temp, get_local_id(2) == 0 || get_local_id(2) == 1);
+	barrier(CLK_LOCAL_MEM_FENCE);
 	
-	if (self < 64)
-		image[pixel] = (uint8_t) reconstruct[selfT];
+					
+	/* Reconstruction */
+    iqdct_block(&(intra_qdct[offs]), reconstruct, temp, get_local_id(2) == 0 || get_local_id(2) == 1);
+
+    if (self < 64) {
+        /*
+         * If we store the deltas..
+         */
+        if(offs > 0) {
+            image[pixel] = (uint8_t) reconstruct[selfT] + old_image[(center.y+myY)*columns + center.x+myX];
+        } else {
+            image[pixel] = (uint8_t) reconstruct[selfT];
+        }
+    }
 	
 }
