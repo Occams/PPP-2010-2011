@@ -18,6 +18,8 @@
 #include "compression_stats.h"
 #include "motion_stats.h"
 
+#define GOPSIZE 64
+
 /* Which implementiton (CPU sequential, CPU OpenCL, GPU OpenCL) to use */
 enum impl_type {
     IMPL_SEQ, IMPL_CPU, IMPL_GPU
@@ -470,6 +472,10 @@ static int encode_video_cl(video *video, FILE *f, const ppp_image_info *info,
     /* Number of frames to encode */
     const int max_frames     = opts->max_frames;
 
+    ppp_frame **frames, **enc_frames;
+    frames = (ppp_frame**)malloc(sizeof(ppp_frame*)*GOPSIZE);
+    enc_frames = (ppp_frame**)malloc(sizeof(ppp_frame*)*GOPSIZE);
+    
     ppp_frame *frame, *enc_frame;
     ppp_motion motions[n_blocks];
 
@@ -479,17 +485,22 @@ static int encode_video_cl(video *video, FILE *f, const ppp_image_info *info,
 
     encoder_stats_init();
 
-    frame = video_alloc_frame(video);
-    if (frame == NULL) {
-        fprintf(stderr, "could not allocate frame buffer\n");
-        return -1;
-    }
+    for(int i = 0; i < GOPSIZE; i++) {
+        frames[i] = video_alloc_frame(video);
+        if (frames[i] == NULL) {
+            fprintf(stderr, "could not allocate frame buffer\n");
+            return -1;
+        }
 
-    enc_frame = ppp_frame_alloc(max_enc_bytes);
-    if (enc_frame == NULL) {
-        fprintf(stderr, "could not allocate buffer for encoded frame\n");
-        free(frame);
-        return -1;
+        enc_frames[i] = ppp_frame_alloc(max_enc_bytes);
+        if (enc_frames[i] == NULL) {
+            fprintf(stderr, "could not allocate buffer for encoded frame\n");
+            /*
+             * TODO: think about freeing other variables
+             */
+            free(frames);
+            return -1;
+        }
     }
 
     cl_context context;
@@ -522,23 +533,23 @@ static int encode_video_cl(video *video, FILE *f, const ppp_image_info *info,
      * We request that the image (from the host) is copied to the device.
      */
     imageGPU = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                              sizeof(uint8_t)*rows*columns, NULL, &res);
+                              sizeof(uint8_t)*rows*columns*GOPSIZE, NULL, &res);
     if (res != CL_SUCCESS)
         error_and_abort("Could not allocate imageGPU", res);
 
     old_imageGPU = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                              sizeof(int8_t)*rows*columns, NULL, &res);
+                              sizeof(int8_t)*rows*columns*GOPSIZE, NULL, &res);
     if (res != CL_SUCCESS)
         error_and_abort("Could not allocate old_imageGPU", res);
 
     offsets_and_sizesGPU =
         clCreateBuffer(context, CL_MEM_READ_WRITE,
-                       sizeof(cl_uint)*2*n_blocks, NULL, &res);
+                       sizeof(cl_uint)*2*n_blocks*GOPSIZE, NULL, &res);
     if (res != CL_SUCCESS)
         error_and_abort("Could not allocate offsets_and_sizesGPU", res);
 
     sizeGPU  = clCreateBuffer(context, CL_MEM_READ_WRITE,
-                              sizeof(size), NULL, &res);
+                              sizeof(size)*GOPSIZE, NULL, &res);
     if (res != CL_SUCCESS)
         error_and_abort("Could not allocate sizeGPU", res);
 
@@ -546,12 +557,12 @@ static int encode_video_cl(video *video, FILE *f, const ppp_image_info *info,
      * We need at most 'max_enc_bytes' to represent the result.
      */
     frameGPU = clCreateBuffer(context, CL_MEM_WRITE_ONLY,
-                              max_enc_bytes, NULL, &res);
+                              max_enc_bytes*GOPSIZE, NULL, &res);
     if (res != CL_SUCCESS)
         error_and_abort("Could not allocate frameGPU", res);
 
     motionsGPU = clCreateBuffer(context, CL_MEM_WRITE_ONLY,
-                                n_blocks*sizeof(ppp_motion), NULL, &res);
+                                n_blocks*sizeof(ppp_motion)*GOPSIZE, NULL, &res);
     if (res != CL_SUCCESS)
         error_and_abort("Could not allocate motionsGPU", res);
 
@@ -582,46 +593,59 @@ static int encode_video_cl(video *video, FILE *f, const ppp_image_info *info,
 
     /* Sequentially walk through the frames of the input video. */
     int frame_nr = 0;
-    while (frame_nr < max_frames && video_get_next_frame(video, frame) == 0) {
-        if (frame_nr >= frames_to_skip) {
-            res = clEnqueueWriteBuffer(queue, imageGPU, CL_TRUE, 0,
-                                       frame->length, frame->data,
-                                       0, NULL, NULL);
-            if (res != CL_SUCCESS)
-                error_and_abort("Could not enqueue image buffer write", res);
-
-            size = 0;
-            res = clEnqueueWriteBuffer(queue, sizeGPU, CL_TRUE, 0,
-                                       sizeof(size), &size,
-                                       0, NULL, NULL);
-            if (res != CL_SUCCESS)
-                error_and_abort("Could not enqueue image buffer write", res);
-
-            /* When we do motion estimation and we are not at the
-             * beginning of a GOP, set 'old_image' to the
-             * data area of the previous frame (encode_video_frame
-             * has updated the contents of the frame to contain the
-             * image the decoder will see.
-             */
-            cl_int motion_search =
-                (frame_nr-frames_to_skip)%64==0 ? MS_NONE : opts->motion_search;
+    int frame_in_gop_nr = 0;
+    for(int frame_nr = frames_to_skip; frame_nr < max_frames; frame_nr+=GOPSIZE) {
+        int frame_in_gop_nr = 0;
+        for(frame_in_gop_nr = 0; frame_in_gop_nr < GOPSIZE; frame_in_gop_nr++) {
+            int real_frame_nr = frame_nr+frame_in_gop_nr;
             
-            clSetKernelArg(kernelEncode, 0, sizeof(cl_mem), &imageGPU);
-            clSetKernelArg(kernelEncode, 1, sizeof(cl_mem), &old_imageGPU);
-            clSetKernelArg(kernelEncode, 2, sizeof(cl_int), &motion_search);
+            if(video_get_next_frame(video, frames[frame_in_gop_nr]) == 0) {
+                /*
+                 * Copy frames into buffer...
+                 */
+                res = clEnqueueWriteBuffer(queue, imageGPU, CL_TRUE, frame_in_gop_nr*rows*columns,
+                                           frames[frame_in_gop_nr]->length, frames[frame_in_gop_nr]->data,
+                                           0, NULL, NULL);
+                if (res != CL_SUCCESS)
+                    error_and_abort("Could not enqueue image buffer write", res);
+                    
+                
+                size = 0;
+                res = clEnqueueWriteBuffer(queue, sizeGPU, CL_TRUE, sizeof(size)*frame_in_gop_nr,
+                                           sizeof(size), &size,
+                                           0, NULL, NULL);
+                if (res != CL_SUCCESS)
+                    error_and_abort("Could not enqueue image buffer write", res);
 
-            res = clEnqueueNDRangeKernel(queue, kernelEncode, work_dims, NULL,
+            }
+        }
+        
+        
+        
+        cl_int pics_in_gop = frame_in_gop_nr;
+        
+        clSetKernelArg(kernelEncode, 0, sizeof(cl_mem), &imageGPU);
+        clSetKernelArg(kernelEncode, 1, sizeof(cl_mem), &old_imageGPU);
+        clSetKernelArg(kernelEncode, 2, sizeof(cl_int), &pics_in_gop);
+        
+        
+        /*
+         * Call the kernel
+         */
+        res = clEnqueueNDRangeKernel(queue, kernelEncode, work_dims, NULL,
                                          global_work_size, local_work_size,
                                          0, NULL, NULL);
-            if (res != CL_SUCCESS)
-                error_and_abort("Could not enqueue kernel invocation", res);
+        if (res != CL_SUCCESS)
+            error_and_abort("Could not enqueue kernel invocation", res);
+        
+        res = clEnqueueReadBuffer(queue, sizeGPU, CL_TRUE, 0,
+                                  sizeof(size)*GOPSIZE, &size, 0, NULL, NULL);
+        if (res != CL_SUCCESS)
+            error_and_abort("Could not enqueue buffer read", res);
             
-            res = clEnqueueReadBuffer(queue, sizeGPU, CL_TRUE, 0,
-                                      sizeof(size), &size, 0, NULL, NULL);
-            if (res != CL_SUCCESS)
-                error_and_abort("Could not enqueue buffer read", res);
-
-            enc_frame->length = size;
+            
+        for(int i = 0; i < frame_in_gop_nr; i++) {
+            enc_frames[i]->length = size;
             if (compr) {
                 /* Map 'offsets_and_sizesGPU' and 'frameGPU' into host
                  * address space and walk through the blocks copying
@@ -629,18 +653,18 @@ static int encode_video_cl(video *video, FILE *f, const ppp_image_info *info,
                  */
                 cl_uint *offsets_and_sizes = (cl_uint *)
                     clEnqueueMapBuffer(queue, offsets_and_sizesGPU, CL_TRUE,
-                                       CL_MAP_READ, 0, sizeof(cl_uint)*2*n_blocks,
+                                       CL_MAP_READ, sizeof(cl_uint)*2*n_blocks*i, sizeof(cl_uint)*2*n_blocks,
                                        0, NULL, NULL, &res);
                 if (res != CL_SUCCESS)
                     error_and_abort("Could not enqueue buffer mapping for 'offsets_and_sizes'", res);
                 
                 uint8_t *framePtr = (uint8_t *)
                     clEnqueueMapBuffer(queue, frameGPU, CL_TRUE, CL_MAP_READ,
-                                       0, enc_frame->length, 0, NULL, NULL, &res);
+                                       max_enc_bytes*i, enc_frames[i]->length, 0, NULL, NULL, &res);
                 if (res != CL_SUCCESS)
                     error_and_abort("Could not map 'frameGPU'", res);
                 
-                uint8_t *frameData = (uint8_t *)enc_frame->data;
+                uint8_t *frameData = (uint8_t *)enc_frames[i]->data;
                 for (int blk=0; blk<n_blocks; blk++) {
                     cl_uint off = offsets_and_sizes[2*blk];
                     cl_uint len = offsets_and_sizes[2*blk+1];
@@ -648,8 +672,9 @@ static int encode_video_cl(video *video, FILE *f, const ppp_image_info *info,
                     frameData += len;
                 }
 
-                res = clEnqueueUnmapMemObject(queue, offsets_and_sizesGPU, framePtr,
+                res = clEnqueueUnmapMemObject(queue, offsets_and_sizesGPU, offsets_and_sizes,
                                               0, NULL, NULL);
+                                              
                 if (res != CL_SUCCESS)
                     error_and_abort("Could not unmap 'offsets_and_sizesGPU'", res);
                 
@@ -657,16 +682,25 @@ static int encode_video_cl(video *video, FILE *f, const ppp_image_info *info,
                 if (res != CL_SUCCESS)
                     error_and_abort("Could not unmap 'frameGPU'", res);
             } else {
+                if(enc_frames[i]->data == NULL) {
+                    printf("IS NULL\n");
+                    fflush(stdout);
+                }
+            
                 /* Copy the result from the device to the host. */
                 res = clEnqueueReadBuffer(queue, frameGPU, CL_TRUE, 0,
-                                          enc_frame->length, enc_frame->data, 0, NULL, NULL);
+                                          0, enc_frames[i]->data, 0, NULL, NULL);
+                                          
+                printf("IS NULL\n");
+                    fflush(stdout);
+                                        
                 if (res != CL_SUCCESS)
                     error_and_abort("Could not enqueue buffer read for 'frame'", res);
             }
 
-            printf("Size: %u\n", (unsigned int)enc_frame->length);
-
-            res = clEnqueueReadBuffer(queue, motionsGPU, CL_TRUE, 0,
+            printf("Size of Picture (%i, %i. GOP): %u\n", i, frame_nr/GOPSIZE, (unsigned int)enc_frames[i]->length);
+            
+            res = clEnqueueReadBuffer(queue, motionsGPU, CL_TRUE, n_blocks*sizeof(ppp_motion)*i,
                                       n_blocks*sizeof(ppp_motion), motions,
                                       0, NULL, NULL);
             if (res != CL_SUCCESS)
@@ -676,14 +710,13 @@ static int encode_video_cl(video *video, FILE *f, const ppp_image_info *info,
             imageGPU = old_imageGPU;
             old_imageGPU = tmp;
 
-            ppp_video_frame_write(f, n_blocks, enc_frame, motions);
+            ppp_video_frame_write(f, n_blocks, enc_frames[i], motions);
             if (opts->show_stats)
-                do_stats(enc_frame, motions, n_blocks);            
+                do_stats(enc_frames[i], motions, n_blocks);            
+        
         }
-        printf("frame %d\n", frame_nr);
-        fflush(stdout);
-        frame_nr++;
     }
+    
 
     clEnqueueMarker(queue, &endEvent);
 
