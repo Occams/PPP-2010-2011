@@ -483,6 +483,11 @@ static int encode_video_cl(video *video, FILE *f, const ppp_image_info *info,
     const bool compr     = format == PPP_IMGFMT_COMPRESSED_DCT;
     const size_t max_enc_bytes = max_encoded_length(64)*n_blocks;
 
+    if (!compr) {
+        fprintf(stderr, "Compression must be enabled for OpenCL implementation\n");
+        return -1;
+    }
+
     encoder_stats_init();
 
     for(int i = 0; i < GOPSIZE; i++) {

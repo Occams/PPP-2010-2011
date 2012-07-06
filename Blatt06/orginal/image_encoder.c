@@ -196,7 +196,7 @@ static ppp_frame *encode_opencl(uint8_t *image, const ppp_image_info *info,
             frameData += len;
         }
 
-        res = clEnqueueUnmapMemObject(queue, offsets_and_sizesGPU, framePtr,
+        res = clEnqueueUnmapMemObject(queue, offsets_and_sizesGPU, offsets_and_sizes,
                                       0, NULL, NULL);
         if (res != CL_SUCCESS)
             error_and_abort("Could not unmap 'offsets_and_sizesGPU'", res);
